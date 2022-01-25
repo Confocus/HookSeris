@@ -40,14 +40,19 @@ BOOL EnableDebugPriv(LPCSTR name);
 BOOL WINAPI InjectTargetProcess(DWORD dwProcessId);
 BOOL WINAPI InjectTargetProcess2(DWORD dwProcessId);
 
+typedef struct MESSAGEBOX_PARAM {
+	PVOID pMessageBoxAddr;
+	char MessageBoxTitle[64];
+	char MessageBoxBody[64];
+}MESSAGEBOX_PARAM, *PMESSAGEBOX_PARAM;
+
 int main()
 {
 	OutputDebugStringA("[HookSeris]main start.\n");
-
 	BOOL bSuccess = FALSE;
 	EnableDebugPriv("SeDebugPrivilege");
 	//bSuccess = InjectTargetProcess(2616);
-	bSuccess = InjectTargetProcess2(15028);
+	bSuccess = InjectTargetProcess2(23140);
 	return 1;
 }
 
@@ -151,6 +156,17 @@ static DWORD WINAPI InlineHookThread(LPVOID pParam)
 	//OutputDebugStringA("[HookSeris]CreateThread InlineHookThread.\n");
 	/*std::string s = "ttt";
 	MessageBoxA(0, s.c_str(), s.c_str(), 0);*/
+	typedef int (WINAPI *PFUNC_MESSAGEBOXA)(
+			_In_opt_ HWND hWnd,
+			_In_opt_ LPCSTR lpText,
+			_In_opt_ LPCSTR lpCaption,
+			_In_ UINT uType);
+	PMESSAGEBOX_PARAM pMessageBoxParam = (PMESSAGEBOX_PARAM)pParam;
+	PFUNC_MESSAGEBOXA pMessageBoxA = (PFUNC_MESSAGEBOXA)pMessageBoxParam->pMessageBoxAddr;
+	pMessageBoxA(0, pMessageBoxParam->MessageBoxTitle, pMessageBoxParam->MessageBoxBody, 0);
+
+
+
 	return 1;
 }
 
@@ -161,9 +177,11 @@ BOOL WINAPI InjectTargetProcess2(DWORD dwProcessId)
 	HANDLE hThread = NULL;
 	HANDLE hRemoteThread = NULL;
 	LPVOID pThreadMem = NULL;
+	LPVOID pThreadParam = NULL;
+
 	SIZE_T dwWritten = 0;
 	HMODULE hModNtdll = NULL;
-	HMODULE hMod = NULL;
+	HMODULE hModUser32 = NULL;
 	DWORD dwLastError = 0;
 	DWORD dwStatus = 0;
 	LPZwCreateThreadEx pZwCreateThreadEx = NULL;
@@ -181,9 +199,9 @@ BOOL WINAPI InjectTargetProcess2(DWORD dwProcessId)
 			break;
 		}
 
-		printf("InlineHookThread:0x%016I64x\n", ::InlineHookThread);
-		printf("InlineHookThread:0x%016I64x\n", *InlineHookThread);
-		printf("InlineHookThread:0x%llx\n", &InlineHookThread);//一样
+		//printf("InlineHookThread:0x%016I64x\n", ::InlineHookThread);
+		//printf("InlineHookThread:0x%016I64x\n", *InlineHookThread);
+		//printf("InlineHookThread:0x%llx\n", &InlineHookThread);//一样
 		//这里直接打印的是jmp     InlineHookThread 指令的地址。jmp     InlineHookThread为E9 96 0C
 
 		if (!WriteProcessMemory(hProcess, pThreadMem, InlineHookThread, INLINE_HOOK_THREAD_SIZE, &dwWritten))
@@ -195,6 +213,34 @@ BOOL WINAPI InjectTargetProcess2(DWORD dwProcessId)
 		hModNtdll = LoadLibraryA("ntdll.dll");
 		if (NULL == hModNtdll)
 		{
+			break;
+		}
+
+		hModUser32 = LoadLibraryA("user32.dll");
+		if (NULL == hModUser32)
+		{
+			break;
+		}
+
+		MESSAGEBOX_PARAM MsgBoxParam = { 0 };
+		ZeroMemory(&MsgBoxParam, sizeof(MESSAGEBOX_PARAM));
+		MsgBoxParam.pMessageBoxAddr = GetProcAddress(hModUser32, "MessageBoxA");
+		if (!MsgBoxParam.pMessageBoxAddr)
+		{
+			break;
+		}
+		strcpy_s(MsgBoxParam.MessageBoxTitle, "ttt");
+		strcpy_s(MsgBoxParam.MessageBoxBody, "ttt");
+
+		pThreadParam = VirtualAllocEx(hProcess, NULL, sizeof(MESSAGEBOX_PARAM), MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READWRITE);
+		if (!pThreadParam)
+		{
+			break;
+		}
+
+		if (!WriteProcessMemory(hProcess, pThreadParam, &MsgBoxParam, sizeof(MESSAGEBOX_PARAM), &dwWritten))
+		{
+			dwLastError = GetLastError();
 			break;
 		}
 
@@ -211,7 +257,7 @@ BOOL WINAPI InjectTargetProcess2(DWORD dwProcessId)
 			break;
 		}*/
 
-		hThread = CreateRemoteThread(hProcess, NULL, 0, (LPTHREAD_START_ROUTINE)pThreadMem, NULL, 0, NULL);
+		hThread = CreateRemoteThread(hProcess, NULL, 0, (LPTHREAD_START_ROUTINE)pThreadMem, pThreadParam, 0, NULL);
 		dwLastError = GetLastError();
 		if (NULL == hThread)
 		{
