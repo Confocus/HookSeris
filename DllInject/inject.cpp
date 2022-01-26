@@ -155,31 +155,42 @@ static DWORD WINAPI InlineHookThread(LPVOID pParam)
 		);
 
 	PAPIPARAM_SET pAPIParamSet = (PAPIPARAM_SET)pParam;
-	PFUNC_MESSAGEBOXA pMessageBoxA = (PFUNC_MESSAGEBOXA)(pAPIParamSet->MsgBoxAParam.pMessageBoxAddr);
+	//PFUNC_MESSAGEBOXA pMessageBoxA = (PFUNC_MESSAGEBOXA)(pAPIParamSet->MsgBoxAParam.pMessageBoxAddr);
 	PFUNC_LOADLIBRARYA pLoadLibraryA = (PFUNC_LOADLIBRARYA)(pAPIParamSet->LoadLibraryAParm.pLoadLibraryA);
-	PFUNC_GETPROCADDRA pGetProcAddrA = (PFUNC_GETPROCADDRA)(pAPIParamSet->GetProcAddrAParam.pGetProcAddrA);
+	PFUNC_GETPROCADDRA pGetProcAddr = (PFUNC_GETPROCADDRA)(pAPIParamSet->GetProcAddrAParam.pGetProcAddr);
 	PFUNC_VIRTUALPROTECTEX pVirtualProtectEx = (PFUNC_VIRTUALPROTECTEX)(pAPIParamSet->VirtualProtectExParam.pVirtualProtectEx);
 	PFUNC_VIRTUALPROTECT pVirtualProtect = (PFUNC_VIRTUALPROTECT)(pAPIParamSet->VirtualProtectParam.pVirtualProtect);
 	CHAR szOriginCode[HOOK_LEN] = { 0x00 };
 	//BYTE szHookCode[HOOK_LEN] = { 0x48, 0xB8, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0xFF, 0xE0 };
 	CHAR szHookCode[HOOK_LEN] = { 0xE9, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90 };
 	DWORD OldProtect = 0;
-	PCHAR pMessageBoxAAddr = reinterpret_cast<CHAR*>(pMessageBoxA);
-	if (!pVirtualProtect(pMessageBoxA, HOOK_LEN, PAGE_EXECUTE_READWRITE, &OldProtect))
+	//PCHAR pMessageBoxAAddr = reinterpret_cast<CHAR*>(pMessageBoxA);
+	HMODULE hMod = NULL;
+	hMod = pLoadLibraryA(pAPIParamSet->LoadLibraryAParm.szDllPath);//加载user32.dll
+	if (NULL == hMod)
 	{
 		return 0;
 	}
 
-	for (UINT i = 0; i < HOOK_LEN; i++)// 保存原始机器码指令。若调用memcpy_s，被注入进程会崩溃
-	{
-		szOriginCode[i] = pMessageBoxAAddr[i];
-	}
-	//memcpy_s(szOriginCode, HOOK_LEN, pMessageBoxA, HOOK_LEN);
-		//*(PINT64)(szHookCode + 2) = (INT64)&MyMessageBoxW;    // 填充90为指定跳转地址
-	for (UINT i = 0; i < sizeof(szHookCode); i++)
-	{
-		pMessageBoxAAddr[i] = szHookCode[i];
-	}
+	PVOID64 pMessageBoxATmp = pGetProcAddr(hMod, pAPIParamSet->GetProcAddrAParam.szAPIName);//获取MessageBoxA的地址
+	PFUNC_MESSAGEBOXA pMessageBoxA = (PFUNC_MESSAGEBOXA)pMessageBoxATmp;
+
+	pMessageBoxA(0, pAPIParamSet->MsgBoxAParam.szMessageBoxTitle, pAPIParamSet->MsgBoxAParam.szMessageBoxBody, 0);
+	//if (!pVirtualProtect(pMessageBoxA, HOOK_LEN, PAGE_EXECUTE_READWRITE, &OldProtect))
+	//{
+	//	return 0;
+	//}
+
+	//for (UINT i = 0; i < HOOK_LEN; i++)// 保存原始机器码指令。若调用memcpy_s，被注入进程会崩溃
+	//{
+	//	szOriginCode[i] = pMessageBoxAAddr[i];
+	//}
+	////memcpy_s(szOriginCode, HOOK_LEN, pMessageBoxA, HOOK_LEN);
+	//	//*(PINT64)(szHookCode + 2) = (INT64)&MyMessageBoxW;    // 填充90为指定跳转地址
+	//for (UINT i = 0; i < sizeof(szHookCode); i++)
+	//{
+	//	pMessageBoxAAddr[i] = szHookCode[i];
+	//}
 	//memcpy_s(pMessageBoxA, sizeof(szHookCode), &szHookCode, sizeof(szHookCode));    // 拷贝Hook机器指令
 
 	return 1;
@@ -256,6 +267,14 @@ BOOL WINAPI InjectCode(DWORD dwProcessId)
 		{
 			break;
 		}
+		strcpy_s(APIParamSet.LoadLibraryAParm.szDllPath, strlen("user32.dll") + 1, "user32.dll");
+
+		APIParamSet.GetProcAddrAParam.pGetProcAddr = GetProcAddress(hModKernel32, "GetProcAddress");
+		if (NULL == APIParamSet.GetProcAddrAParam.pGetProcAddr)
+		{
+			break;
+		}
+		strcpy_s(APIParamSet.GetProcAddrAParam.szAPIName, strlen("MessageBoxA") + 1, "MessageBoxA");
 
 		APIParamSet.VirtualProtectExParam.pVirtualProtectEx = GetProcAddress(hModKernel32, "VirtualProtectEx");
 		if (NULL == APIParamSet.VirtualProtectExParam.pVirtualProtectEx)
@@ -268,7 +287,6 @@ BOOL WINAPI InjectCode(DWORD dwProcessId)
 		{
 			break;
 		}
-		//strcpy_s(APIParamSet.LoadLibraryAParm.szDllPath, strlen("ttt") + 1, "ttt");
 
 		pThreadParam = VirtualAllocEx(hProcess, NULL, sizeof(APIPARAM_SET), MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READWRITE);
 		if (!pThreadParam)
