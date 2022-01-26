@@ -129,21 +129,58 @@ static DWORD WINAPI InlineHookThread(LPVOID pParam)
 		_In_opt_ LPCSTR lpText,
 		_In_opt_ LPCSTR lpCaption,
 		_In_ UINT uType);
-	PAPIPARAM_SET pMessageBoxParam = (PAPIPARAM_SET)pParam;
-	PFUNC_MESSAGEBOXA pMessageBoxA = (PFUNC_MESSAGEBOXA)pMessageBoxParam->pMessageBoxAddr;
 
-	//pMessageBoxA(0, pMessageBoxParam->MessageBoxTitle, pMessageBoxParam->MessageBoxBody, 0);
-	/*HookMessageBoxA(pMessageBoxA);
-	UnHookMessageBoxA(pMessageBoxA);*/
-	BYTE szOriginCode[HOOK_LEN] = { 0x00 };
-	BYTE szHookCode[HOOK_LEN] = { 0x48, 0xB8, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0xFF, 0xE0 };
+	typedef HMODULE (WINAPI *PFUNC_LOADLIBRARYA)(
+			_In_ LPCSTR lpLibFileName
+		);
+
+	typedef PVOID64 (WINAPI *PFUNC_GETPROCADDRA)(
+			_In_ HMODULE hModule,
+			_In_ LPCSTR lpProcName
+		);
+
+	typedef BOOL (WINAPI *PFUNC_VIRTUALPROTECTEX)(
+			_In_ HANDLE hProcess,
+			_In_ LPVOID lpAddress,
+			_In_ SIZE_T dwSize,
+			_In_ DWORD flNewProtect,
+			_Out_ PDWORD lpflOldProtect
+		);
+
+	typedef BOOL (WINAPI *PFUNC_VIRTUALPROTECT)(
+			_In_ LPVOID lpAddress,
+			_In_ SIZE_T dwSize,
+			_In_ DWORD flNewProtect,
+			_Out_ PDWORD lpflOldProtect
+		);
+
+	PAPIPARAM_SET pAPIParamSet = (PAPIPARAM_SET)pParam;
+	PFUNC_MESSAGEBOXA pMessageBoxA = (PFUNC_MESSAGEBOXA)(pAPIParamSet->MsgBoxAParam.pMessageBoxAddr);
+	PFUNC_LOADLIBRARYA pLoadLibraryA = (PFUNC_LOADLIBRARYA)(pAPIParamSet->LoadLibraryAParm.pLoadLibraryA);
+	PFUNC_GETPROCADDRA pGetProcAddrA = (PFUNC_GETPROCADDRA)(pAPIParamSet->GetProcAddrAParam.pGetProcAddrA);
+	PFUNC_VIRTUALPROTECTEX pVirtualProtectEx = (PFUNC_VIRTUALPROTECTEX)(pAPIParamSet->VirtualProtectExParam.pVirtualProtectEx);
+	PFUNC_VIRTUALPROTECT pVirtualProtect = (PFUNC_VIRTUALPROTECT)(pAPIParamSet->VirtualProtectParam.pVirtualProtect);
+	CHAR szOriginCode[HOOK_LEN] = { 0x00 };
+	//BYTE szHookCode[HOOK_LEN] = { 0x48, 0xB8, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0xFF, 0xE0 };
+	CHAR szHookCode[HOOK_LEN] = { 0xE9, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90 };
 	DWORD OldProtect = 0;
-	if (VirtualProtect(pMessageBoxA, HOOK_LEN, PAGE_EXECUTE_READWRITE, &OldProtect))
+	PCHAR pMessageBoxAAddr = reinterpret_cast<CHAR*>(pMessageBoxA);
+	if (!pVirtualProtect(pMessageBoxA, HOOK_LEN, PAGE_EXECUTE_READWRITE, &OldProtect))
 	{
-		memcpy(szOriginCode, pMessageBoxA, HOOK_LEN);         // 拷贝原始机器码指令
-		*(PINT64)(szHookCode + 2) = (INT64)&MyMessageBoxW;    // 填充90为指定跳转地址
+		return 0;
 	}
-	memcpy(pMessageBoxA, &szHookCode, sizeof(szHookCode));    // 拷贝Hook机器指令
+
+	for (UINT i = 0; i < HOOK_LEN; i++)// 保存原始机器码指令。若调用memcpy_s，被注入进程会崩溃
+	{
+		szOriginCode[i] = pMessageBoxAAddr[i];
+	}
+	//memcpy_s(szOriginCode, HOOK_LEN, pMessageBoxA, HOOK_LEN);
+		//*(PINT64)(szHookCode + 2) = (INT64)&MyMessageBoxW;    // 填充90为指定跳转地址
+	for (UINT i = 0; i < sizeof(szHookCode); i++)
+	{
+		pMessageBoxAAddr[i] = szHookCode[i];
+	}
+	//memcpy_s(pMessageBoxA, sizeof(szHookCode), &szHookCode, sizeof(szHookCode));    // 拷贝Hook机器指令
 
 	return 1;
 }
@@ -186,7 +223,7 @@ BOOL WINAPI InjectCode(DWORD dwProcessId)
 			break;
 		}
 
-		hModNtdll = LoadLibraryA("ntdll.dll");
+		hModNtdll = LoadLibraryA("ntdll.dll");//重复代码，尝试用宏替代
 		if (NULL == hModNtdll)
 		{
 			break;
@@ -198,15 +235,40 @@ BOOL WINAPI InjectCode(DWORD dwProcessId)
 			break;
 		}
 
-		APIPARAM_SET MsgBoxParam = { 0 };
-		ZeroMemory(&MsgBoxParam, sizeof(APIPARAM_SET));
-		MsgBoxParam.pMessageBoxAddr = GetProcAddress(hModUser32, "MessageBoxA");
-		if (!MsgBoxParam.pMessageBoxAddr)
+		hModKernel32 = LoadLibraryA("kernel32.dll");
+		if (NULL == hModKernel32)
 		{
 			break;
 		}
-		strcpy_s(MsgBoxParam.szMessageBoxTitle, strlen("ttt") + 1, "ttt");
-		strcpy_s(MsgBoxParam.szMessageBoxBody, strlen("ttt") + 1, "ttt");
+
+		APIPARAM_SET APIParamSet = { 0 };
+		ZeroMemory(&APIParamSet, sizeof(APIPARAM_SET));
+		APIParamSet.MsgBoxAParam.pMessageBoxAddr = GetProcAddress(hModUser32, "MessageBoxA");//重复代码，尝试用宏替代
+		if (NULL == APIParamSet.MsgBoxAParam.pMessageBoxAddr)
+		{
+			break;
+		}
+		strcpy_s(APIParamSet.MsgBoxAParam.szMessageBoxTitle, strlen("ttt") + 1, "ttt");
+		strcpy_s(APIParamSet.MsgBoxAParam.szMessageBoxBody, strlen("ttt") + 1, "ttt");
+
+		APIParamSet.LoadLibraryAParm.pLoadLibraryA = GetProcAddress(hModKernel32, "LoadLibraryA");
+		if (NULL == APIParamSet.LoadLibraryAParm.pLoadLibraryA)
+		{
+			break;
+		}
+
+		APIParamSet.VirtualProtectExParam.pVirtualProtectEx = GetProcAddress(hModKernel32, "VirtualProtectEx");
+		if (NULL == APIParamSet.VirtualProtectExParam.pVirtualProtectEx)
+		{
+			break;
+		}
+
+		APIParamSet.VirtualProtectParam.pVirtualProtect = GetProcAddress(hModKernel32, "VirtualProtect");
+		if (NULL == APIParamSet.VirtualProtectParam.pVirtualProtect)
+		{
+			break;
+		}
+		//strcpy_s(APIParamSet.LoadLibraryAParm.szDllPath, strlen("ttt") + 1, "ttt");
 
 		pThreadParam = VirtualAllocEx(hProcess, NULL, sizeof(APIPARAM_SET), MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READWRITE);
 		if (!pThreadParam)
@@ -214,7 +276,7 @@ BOOL WINAPI InjectCode(DWORD dwProcessId)
 			break;
 		}
 
-		if (!WriteProcessMemory(hProcess, pThreadParam, &MsgBoxParam, sizeof(APIPARAM_SET), &dwWritten))
+		if (!WriteProcessMemory(hProcess, pThreadParam, &APIParamSet, sizeof(APIPARAM_SET), &dwWritten))
 		{
 			dwLastError = GetLastError();
 			break;

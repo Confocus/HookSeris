@@ -8,6 +8,6 @@ int main()
 	BOOL bSuccess = FALSE;
 	EnableDebugPriv("SeDebugPrivilege");
 	//bSuccess = InjectTargetProcess(2616);
-	bSuccess = InjectCode(13524);
+	bSuccess = InjectCode(11460);
 	return 1;
 }
