@@ -145,7 +145,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="inject.cpp" />
-    <ClCompile Include="main.cpp" />
+    <ClCompile Include="InjectorMain.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="inject.h" />

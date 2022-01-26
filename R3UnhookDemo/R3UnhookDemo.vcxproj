@@ -24,7 +24,7 @@
     <ProjectGuid>{6f6f42b9-e026-407a-b090-f8dad1726df9}</ProjectGuid>
     <RootNamespace>R3UnhookDemo</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
-    <ProjectName>R3UnhookDemo</ProjectName>
+    <ProjectName>R3APIHookScanner</ProjectName>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
@@ -140,7 +140,12 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="main.cpp" />
+    <ClCompile Include="CR3APIHookScanner.cpp" />
+    <ClCompile Include="ScannerMain.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="CR3APIHookScanner.h" />
+    <ClInclude Include="stdafx.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

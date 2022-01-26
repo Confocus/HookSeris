@@ -199,16 +199,13 @@ static DWORD WINAPI InlineHookThread(LPVOID pParam)
 BOOL WINAPI InjectCode(DWORD dwProcessId)
 {
 	BOOL bRet = FALSE;
-	HANDLE hProcess = NULL;
-	HANDLE hThread = NULL;
-	HANDLE hRemoteThread = NULL;
-	LPVOID pThreadMem = NULL;
-	LPVOID pThreadParam = NULL;
+	HANDLE hProcess = NULL, hThread = NULL, hRemoteThread = NULL;
+	LPVOID pThreadMem = NULL, pThreadParam = NULL;
 	SIZE_T dwWritten = 0;
 	HMODULE hModNtdll = NULL, hModUser32 = NULL, hModKernel32 = NULL;
-	DWORD dwLastError = 0;
-	DWORD dwStatus = 0;
+	DWORD dwLastError = 0, dwStatus = 0;
 	LPZwCreateThreadEx pZwCreateThreadEx = NULL;
+
 	hProcess = OpenProcess(PROCESS_ALL_ACCESS, FALSE, dwProcessId);
 	if (NULL == hProcess)
 	{
