@@ -8,27 +8,16 @@
 #define MAX_PATH_LEN	100
 
 typedef DWORD(*LPZwCreateThreadEx)(
-
 	PHANDLE ThreadHandle,
-
 	ACCESS_MASK DesiredAccess,
-
 	LPVOID ObjectAttributes,
-
 	HANDLE ProcessHandle,
-
 	LPTHREAD_START_ROUTINE lpStartAddress,
-
 	LPVOID lpParameter,
-
 	ULONG CreateThreadFlags,
-
 	SIZE_T ZeroBits,
-
 	SIZE_T StackSize,
-
 	SIZE_T MaximumStackSize,
-
 	LPVOID pUnkown);
 
 typedef HMODULE(*LPLoadLibraryA)(
