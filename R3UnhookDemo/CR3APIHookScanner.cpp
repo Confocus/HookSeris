@@ -4,7 +4,8 @@
 vector<PROCESS_INFO*> CR3APIHookScanner::m_vecProcessInfo;//无法解析的外部符号
 //vector<MODULE_INFO*> CR3APIHookScanner::m_vecModuleInfo;
 
-CR3APIHookScanner::CR3APIHookScanner()
+CR3APIHookScanner::CR3APIHookScanner():
+	m_bIsWow64(FALSE)
 {
 	Init();
 }
@@ -46,6 +47,7 @@ BOOL CR3APIHookScanner::ScanSingleProcessById(DWORD dwProcessId)
 {
 	Clear();
 	//获取到所有进程
+	//todo：这里拿到一个pProcessInfo即可，不必拿到全部的vector
 	if (!EmurateProcesses(CbCollectProcessInfo))
 	{
 		return FALSE;
@@ -85,23 +87,24 @@ BOOL CR3APIHookScanner::Release()
 		}
 	}
 
-	//if (m_vecModuleInfo.size() > 0)
-	//{
-	//	for (auto pModuleInfo : m_vecModuleInfo)
-	//	{
-	//		if (pModuleInfo)
-	//		{
-	//			delete pModuleInfo;
-	//			pModuleInfo = NULL;
-	//		}
-	//	}
-	//}
-
 	return TRUE;
 }
 
 BOOL CR3APIHookScanner::Clear()
 {
+	if (m_vecProcessInfo.size() > 0)
+	{
+		for (auto pProcessInfo : m_vecProcessInfo)
+		{
+			if (pProcessInfo)
+			{
+				delete pProcessInfo;
+				pProcessInfo = NULL;
+			}
+		}
+	}
+
+	m_vecProcessInfo.clear();
 
 	return TRUE;
 }
@@ -159,6 +162,7 @@ BOOL CR3APIHookScanner::EmurateModules(PPROCESS_INFO pProcessInfo, CALLBACK_EMUN
 	}
 
 	BOOL bNext = FALSE;
+	wstring wcsSuffix;
 	HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, pProcessInfo->dwProcessId);
 	if (INVALID_HANDLE_VALUE == hSnapshot)
 	{
@@ -170,11 +174,20 @@ BOOL CR3APIHookScanner::EmurateModules(PPROCESS_INFO pProcessInfo, CALLBACK_EMUN
 	bNext = Module32FirstW(hSnapshot, &ModuleEntry32);
 	while (bNext)
 	{
+		wstring wcsModuleName = ModuleEntry32.szModule;
+		wcsSuffix = wcsModuleName.substr(wcsModuleName.find_last_of('.') + 1);
+		if (0 != wcsSuffix.compare(L"dll"))
+		{
+			bNext = Module32Next(hSnapshot, &ModuleEntry32);
+			continue;
+		}
+		
 		PMODULE_INFO pModuleInfo = NULL;
 		pModuleInfo = new(std::nothrow) MODULE_INFO();
 		if (pModuleInfo)
 		{
 			//保存ModuleInfo中必要的数据
+			pProcessInfo->dwModuleCount++;
 			ZeroMemory(pModuleInfo, sizeof(PMODULE_INFO));
 			pModuleInfo->pDllBaseAddr = ModuleEntry32.modBaseAddr;
 			pModuleInfo->dwSizeOfImage = ModuleEntry32.modBaseSize;
@@ -215,7 +228,15 @@ BOOL CR3APIHookScanner::ScanSingle(PPROCESS_INFO pProcessInfo)
 	IsWow64Process(hProcess, &bIsWow64);
 	for (auto pModuleInfo : pProcessInfo->m_vecModuleInfo)
 	{
-		LoadDllImage(pModuleInfo->szModulePath);
+		//peLoad(Info.FullName, Info.DllBase, Info.DiskImage, Info.SizeOfImage);
+		LPVOID pDllMemBuffer = NULL;
+		pDllMemBuffer = LoadDllImage(pModuleInfo);
+		if (NULL != pDllMemBuffer)
+		{
+			//用模拟载入内存后的dll和内存中真实的dll进行比较
+			DetectSingleModuleInlineHook(pModuleInfo, pDllMemBuffer);
+			ReleaseDllMemoryBuffer(&pDllMemBuffer);
+		}
 	}
 
 	CloseHandle(hProcess);
@@ -223,22 +244,131 @@ BOOL CR3APIHookScanner::ScanSingle(PPROCESS_INFO pProcessInfo)
 	return TRUE;
 }
 
-BOOL CR3APIHookScanner::LoadDllImage(PWCHAR pDllPath)
+LPVOID CR3APIHookScanner::LoadDllImage(PMODULE_INFO pModuleInfo)
 {
-	if (NULL == pDllPath)
+	if (NULL == pModuleInfo)
 	{
-		return FALSE;
+		return NULL;
+	}
+	printf("Load Dll path:%ls\n", pModuleInfo->szModulePath);
+
+	HANDLE hFile = NULL;
+	DWORD dwNumberOfBytesRead = 0;
+	const DWORD dwBufferSize = pModuleInfo->dwSizeOfImage;
+	//DLL磁盘上的样子
+	LPVOID pDllImageBuffer = NULL;
+	//DLL模拟载入内存中的样子
+	LPVOID pDllMemoryBuffer = NULL;
+	PE_INFO PEInfo = { 0 };
+
+	do 
+	{
+		hFile = CreateFile(pModuleInfo->szModulePath, GENERIC_READ, FILE_SHARE_READ, 0, OPEN_EXISTING, 0, 0);
+		if (INVALID_HANDLE_VALUE == hFile)
+		{
+			break;
+		}
+
+		pDllImageBuffer = new(std::nothrow) BYTE[dwBufferSize];
+		pDllMemoryBuffer = new(std::nothrow) BYTE[dwBufferSize];
+
+		if (pDllImageBuffer && pDllMemoryBuffer)
+		{
+			ZeroMemory(pDllMemoryBuffer, dwBufferSize);
+			if (!ReadFile(hFile, pDllImageBuffer, dwBufferSize, &dwNumberOfBytesRead, NULL))
+			{
+				break;
+			}
+
+			AnalyzePEInfo(pDllImageBuffer, &PEInfo);
+
+			//DLL镜像模拟DLL内存展开后的格式
+			//将所有节区的数据保存
+			for (int i = 0; i < PEInfo.dwSectionCnt; i++)
+			{
+				DWORD dwSizeOfRawData = AlignSize(PEInfo.szSectionHeader[i].SizeOfRawData, PEInfo.dwFileAlign);
+				//printf("ddd:%d", dwSizeOfRawData);
+				memcpy_s((LPVOID)((UINT64)pDllMemoryBuffer + PEInfo.szSectionHeader[i].VirtualAddress),
+					dwSizeOfRawData,
+					(LPVOID)((UINT64)pDllImageBuffer + PEInfo.szSectionHeader[i].PointerToRawData),
+					dwSizeOfRawData);
+			}
+
+		}
+
+		//FixRelocData();
+
+	} while (FALSE);
+
+	if (pDllImageBuffer)
+	{
+		delete[] pDllImageBuffer;
+		pDllImageBuffer = NULL;
 	}
 
-	printf("Dll path:%ls\n", pDllPath);
-	/*HANDLE hFile = NULL;
-	hFile = CreateFile(pDllPath, GENERIC_READ, FILE_SHARE_READ, 0, OPEN_EXISTING, 0, 0);*/
+	/*if (pDllMemoryBuffer)
+	{
+		delete[] pDllMemoryBuffer;
+		pDllMemoryBuffer = NULL;
+	}*/
+
+	CloseHandle(hFile);
+
+	return pDllMemoryBuffer;
+}
+
+VOID CR3APIHookScanner::ReleaseDllMemoryBuffer(LPVOID* ppDllMemoryBuffer)
+{
+	if (*ppDllMemoryBuffer)
+	{
+		delete[] *ppDllMemoryBuffer;
+		*ppDllMemoryBuffer = NULL;
+	}
+}
+
+BOOL CR3APIHookScanner::AnalyzePEInfo(LPVOID pBuffer, PPE_INFO pPeInfo)
+{
+	PIMAGE_DOS_HEADER pDosHeader = NULL;
+	PIMAGE_OPTIONAL_HEADER64 pOptionalHeader64 = NULL;
+	if (m_bIsWow64)
+	{
+
+	}
+	else
+	{
+		pDosHeader = (PIMAGE_DOS_HEADER)pBuffer;
+		if (IMAGE_DOS_SIGNATURE == pDosHeader->e_magic)
+		{
+			pPeInfo->pPeHeader = (PIMAGE_NT_HEADERS64)((UINT64)pBuffer + pDosHeader->e_lfanew);
+			if (IMAGE_NT_SIGNATURE == pPeInfo->pPeHeader->Signature)
+			{
+				pPeInfo->szSectionHeader = IMAGE_FIRST_SECTION(pPeInfo->pPeHeader);
+				pPeInfo->dwSectionCnt = pPeInfo->pPeHeader->FileHeader.NumberOfSections;
+				pOptionalHeader64 = &(pPeInfo->pPeHeader->OptionalHeader);
+
+				//后面在内存中展开需要用到Align
+				pPeInfo->dwFileAlign = pOptionalHeader64->FileAlignment;
+				pPeInfo->dwSectionAlign = pOptionalHeader64->SectionAlignment;
+
+				//后面获取函数地址要用到
+				pPeInfo->dwExportDirRVA = pOptionalHeader64->DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress;
+				pPeInfo->dwExportDirSize = pOptionalHeader64->DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].Size;
+				pPeInfo->dwImportDirRVA = pOptionalHeader64->DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress;
+				pPeInfo->dwImportDirSize = pOptionalHeader64->DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].Size;
+			}
+		}
+	}
 
 	return TRUE;
 }
 
-BOOL CR3APIHookScanner::FixRelocData()
+BOOL CR3APIHookScanner::FixRelocData(LPVOID pBuffer, PPE_INFO pPeInfo)
 {
+	if (NULL == pBuffer || NULL == pPeInfo)
+	{
+		return FALSE;
+	}
+
 	return TRUE;
 }
 
@@ -268,6 +398,16 @@ BOOL CR3APIHookScanner::EnableDebugPrivelege()
 	}
 
 	return TRUE;
+}
+
+BOOL CR3APIHookScanner::DetectSingleModuleInlineHook(PMODULE_INFO pModuleInfo, LPVOID pDllMemoryBuffer)
+{
+	return TRUE;
+}
+
+DWORD CR3APIHookScanner::AlignSize(const DWORD dwSize, const DWORD dwAlign)
+{
+	return ((dwSize + dwAlign - 1) / dwAlign * dwAlign);
 }
 
 BOOL CR3APIHookScanner::CbCollectProcessInfo(PPROCESS_INFO pProcessInfo, PBOOL pBreak)

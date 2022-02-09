@@ -20,12 +20,13 @@ typedef struct _MODULE_INFO
 typedef struct _PROCESS_INFO
 {
 	DWORD dwProcessId;
+	DWORD dwModuleCount;
 	WCHAR szProcessName[MAX_PROCESS_LEN];
 	//todo：智能指针？
 	vector<MODULE_INFO*> m_vecModuleInfo;
-	_PROCESS_INFO()
+	_PROCESS_INFO():dwModuleCount(0)
 	{
-		
+		ZeroMemory(szProcessName, MAX_PROCESS_LEN);
 	}
 
 	~_PROCESS_INFO()
@@ -45,7 +46,17 @@ typedef struct _PROCESS_INFO
 	}
 }PROCESS_INFO, * PPROCESS_INFO;
 
-
+typedef struct _PE_INFO {
+	PIMAGE_NT_HEADERS pPeHeader;
+	PIMAGE_SECTION_HEADER szSectionHeader;
+	DWORD dwExportDirRVA;
+	DWORD dwExportDirSize;
+	DWORD dwImportDirRVA;
+	DWORD dwImportDirSize;
+	DWORD dwSectionCnt;
+	DWORD dwSectionAlign;
+	DWORD dwFileAlign;
+}PE_INFO, *PPE_INFO;
 //class PROCESS_INFO
 //{
 //public:
@@ -94,22 +105,33 @@ private:
 	BOOL EmurateProcesses(CALLBACK_EMUNPROCESS pCallbackFunc);
 	BOOL EmurateModules(PPROCESS_INFO pProcessInfo, CALLBACK_EMUNMODULE pCallbackFunc);
 	BOOL ScanSingle(PPROCESS_INFO pProcessInfo);
-	BOOL LoadDllImage(PWCHAR pDllPath);
-
+	LPVOID LoadDllImage(PMODULE_INFO pModuleInfo);
+	VOID ReleaseDllMemoryBuffer(LPVOID* ppDllMemoryBuffer);
+	BOOL AnalyzePEInfo(LPVOID pBuffer, PPE_INFO pPeInfo);
 	/**
 	* 根据Dll实际加载到的地址，修复Dll映像的地址
 	*
 	* @return
 	*/
-	BOOL FixRelocData();
+	BOOL FixRelocData(LPVOID pBuffer, PPE_INFO pPeInfo);
 
 	BOOL EnableDebugPrivelege();
+
+	/**
+	* pDllMemoryBuffer模拟从Disk载入到内存后并修复重定向数据之后的DLL的Buffer
+	*
+	* @return
+	*/
+	BOOL DetectSingleModuleInlineHook(PMODULE_INFO pModuleInfo, LPVOID pDllMemoryBuffer);
+	DWORD AlignSize(const DWORD dwSize, const DWORD dwAlign);
+	
 	//回调函数
 	static BOOL CbCollectProcessInfo(PPROCESS_INFO pProcessInfo, PBOOL pBreak);
 	static BOOL CbCollectModuleInfo(PPROCESS_INFO pProcessInfo, PMODULE_INFO pModuleInfo);
 
 private:
 	static vector<PROCESS_INFO*> m_vecProcessInfo;
+	BOOL m_bIsWow64;
 	//static vector<MODULE_INFO*> m_vecModuleInfo;
 	static int m_test;
 };
