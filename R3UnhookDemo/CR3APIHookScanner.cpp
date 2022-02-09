@@ -36,7 +36,7 @@ BOOL CR3APIHookScanner::ScanAllProcesses()
 		EmurateModules(pProcessInfo, CbCollectModuleInfo);
 		//todo：考虑进程消失的情况和进程ID变动的情况
 		//ScanSingleProcessById(pProcessInfo->dwProcessId);
-		ScanSingle(pProcessInfo);
+		//ScanSingle(pProcessInfo);
 	}
 
 	return TRUE;
@@ -44,6 +44,25 @@ BOOL CR3APIHookScanner::ScanAllProcesses()
 
 BOOL CR3APIHookScanner::ScanSingleProcessById(DWORD dwProcessId)
 {
+	Clear();
+	//获取到所有进程
+	if (!EmurateProcesses(CbCollectProcessInfo))
+	{
+		return FALSE;
+	}
+
+	//获取到所有进程的所有模块
+	for (PPROCESS_INFO pProcessInfo : m_vecProcessInfo)
+	{
+		if (dwProcessId == pProcessInfo->dwProcessId)
+		{
+			EmurateModules(pProcessInfo, CbCollectModuleInfo);
+			//todo：考虑进程消失的情况和进程ID变动的情况
+			//ScanSingleProcessById(pProcessInfo->dwProcessId);
+			ScanSingle(pProcessInfo);
+		}
+	}
+
 	return TRUE;
 }
 
@@ -60,15 +79,6 @@ BOOL CR3APIHookScanner::Release()
 		{
 			if (pProcessInfo)
 			{
-				for (auto pMoudleInfo : pProcessInfo->m_vecModuleInfo)
-				{
-					if (pMoudleInfo)
-					{
-						delete pMoudleInfo;
-						pMoudleInfo = NULL;
-					}
-				}
-
 				delete pProcessInfo;
 				pProcessInfo = NULL;
 			}
@@ -92,6 +102,7 @@ BOOL CR3APIHookScanner::Release()
 
 BOOL CR3APIHookScanner::Clear()
 {
+
 	return TRUE;
 }
 

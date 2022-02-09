@@ -8,7 +8,7 @@
 
 using namespace std;
 
-typedef struct MODULE_INFO_
+typedef struct _MODULE_INFO
 {
 	BYTE* pDllBaseAddr;
 	DWORD dwSizeOfImage;
@@ -16,12 +16,33 @@ typedef struct MODULE_INFO_
 	WCHAR szModulePath[MAX_MODULE_PATH];
 }MODULE_INFO, * PMODULE_INFO;
 
-typedef struct PROCESS_INFO_
+//todo：改成类
+typedef struct _PROCESS_INFO
 {
 	DWORD dwProcessId;
 	WCHAR szProcessName[MAX_PROCESS_LEN];
 	//todo：智能指针？
 	vector<MODULE_INFO*> m_vecModuleInfo;
+	_PROCESS_INFO()
+	{
+		
+	}
+
+	~_PROCESS_INFO()
+	{
+		printf("Deconstruct _PROCESS_INFO.\n");
+		if (m_vecModuleInfo.size() > 0)
+		{
+			for (auto pMoudleInfo : m_vecModuleInfo)
+			{
+				if (pMoudleInfo)
+				{
+					delete pMoudleInfo;
+					pMoudleInfo = NULL;
+				}
+			}
+		}
+	}
 }PROCESS_INFO, * PPROCESS_INFO;
 
 
