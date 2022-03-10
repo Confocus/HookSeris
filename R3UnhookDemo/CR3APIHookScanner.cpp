@@ -56,12 +56,14 @@ BOOL CR3APIHookScanner::ScanSingleProcessById(DWORD dwProcessId)
 	//获取到所有进程的所有模块
 	for (PPROCESS_INFO pProcessInfo : m_vecProcessInfo)
 	{
+		//找到我们要扫描的那个进程
 		if (dwProcessId == pProcessInfo->dwProcessId)
 		{
 			EmurateModules(pProcessInfo, CbCollectModuleInfo);
 			//todo：考虑进程消失的情况和进程ID变动的情况
 			//ScanSingleProcessById(pProcessInfo->dwProcessId);
 			ScanSingle(pProcessInfo);
+			break;
 		}
 	}
 
@@ -226,11 +228,14 @@ BOOL CR3APIHookScanner::ScanSingle(PPROCESS_INFO pProcessInfo)
 	}
 
 	IsWow64Process(hProcess, &bIsWow64);
+
+	//遍历这个进程中的所有模块
+	//todo:也要考虑快照的时效性的问题
 	for (auto pModuleInfo : pProcessInfo->m_vecModuleInfo)
 	{
 		//peLoad(Info.FullName, Info.DllBase, Info.DiskImage, Info.SizeOfImage);
 		LPVOID pDllMemBuffer = NULL;
-		pDllMemBuffer = LoadDllImage(pModuleInfo);
+		pDllMemBuffer = SimulateLoadDLL(pModuleInfo);
 		if (NULL != pDllMemBuffer)
 		{
 			//用模拟载入内存后的dll和内存中真实的dll进行比较
@@ -244,7 +249,7 @@ BOOL CR3APIHookScanner::ScanSingle(PPROCESS_INFO pProcessInfo)
 	return TRUE;
 }
 
-LPVOID CR3APIHookScanner::LoadDllImage(PMODULE_INFO pModuleInfo)
+LPVOID CR3APIHookScanner::SimulateLoadDLL(PMODULE_INFO pModuleInfo)
 {
 	if (NULL == pModuleInfo)
 	{
@@ -259,7 +264,7 @@ LPVOID CR3APIHookScanner::LoadDllImage(PMODULE_INFO pModuleInfo)
 	LPVOID pDllImageBuffer = NULL;
 	//DLL模拟载入内存中的样子
 	LPVOID pDllMemoryBuffer = NULL;
-	PE_INFO PEInfo = { 0 };
+	PE_INFO PEImageInfo = { 0 };
 
 	do 
 	{
@@ -269,34 +274,41 @@ LPVOID CR3APIHookScanner::LoadDllImage(PMODULE_INFO pModuleInfo)
 			break;
 		}
 
+		//todo：其实这里是否只需要载入导入表的数据就行，不必把全部镜像的数据载入
 		pDllImageBuffer = new(std::nothrow) BYTE[dwBufferSize];
 		pDllMemoryBuffer = new(std::nothrow) BYTE[dwBufferSize];
 
 		if (pDllImageBuffer && pDllMemoryBuffer)
 		{
 			ZeroMemory(pDllMemoryBuffer, dwBufferSize);
+			//将DLL的二进制文件读入内存
 			if (!ReadFile(hFile, pDllImageBuffer, dwBufferSize, &dwNumberOfBytesRead, NULL))
 			{
 				break;
 			}
 
-			AnalyzePEInfo(pDllImageBuffer, &PEInfo);
+			//解析的是DLL的文件镜像的PE结构
+			if (!AnalyzePEInfo(pDllImageBuffer, &PEImageInfo))
+			{
+				break;
+			}
 
 			//DLL镜像模拟DLL内存展开后的格式
 			//将所有节区的数据保存
-			for (int i = 0; i < PEInfo.dwSectionCnt; i++)
+			for (int i = 0; i < PEImageInfo.dwSectionCnt; i++)
 			{
-				DWORD dwSizeOfRawData = AlignSize(PEInfo.szSectionHeader[i].SizeOfRawData, PEInfo.dwFileAlign);
+				DWORD dwSizeOfRawData = AlignSize(PEImageInfo.szSectionHeader[i].SizeOfRawData, PEImageInfo.dwFileAlign);
 				//printf("ddd:%d", dwSizeOfRawData);
-				memcpy_s((LPVOID)((UINT64)pDllMemoryBuffer + PEInfo.szSectionHeader[i].VirtualAddress),
+				memcpy_s((LPVOID)((UINT64)pDllMemoryBuffer + PEImageInfo.szSectionHeader[i].VirtualAddress),
 					dwSizeOfRawData,
-					(LPVOID)((UINT64)pDllImageBuffer + PEInfo.szSectionHeader[i].PointerToRawData),
+					(LPVOID)((UINT64)pDllImageBuffer + PEImageInfo.szSectionHeader[i].PointerToRawData),
 					dwSizeOfRawData);
 			}
-
 		}
 
-		//FixRelocData();
+		//todo：修复导入表
+		//todo：修复重定位数据
+		FixBaseReloc(pDllMemoryBuffer, &PEImageInfo, pModuleInfo->pDllBaseAddr);
 
 	} while (FALSE);
 
@@ -305,12 +317,6 @@ LPVOID CR3APIHookScanner::LoadDllImage(PMODULE_INFO pModuleInfo)
 		delete[] pDllImageBuffer;
 		pDllImageBuffer = NULL;
 	}
-
-	/*if (pDllMemoryBuffer)
-	{
-		delete[] pDllMemoryBuffer;
-		pDllMemoryBuffer = NULL;
-	}*/
 
 	CloseHandle(hFile);
 
@@ -328,47 +334,163 @@ VOID CR3APIHookScanner::ReleaseDllMemoryBuffer(LPVOID* ppDllMemoryBuffer)
 
 BOOL CR3APIHookScanner::AnalyzePEInfo(LPVOID pBuffer, PPE_INFO pPeInfo)
 {
+	BOOL bRet = FALSE;
 	PIMAGE_DOS_HEADER pDosHeader = NULL;
 	PIMAGE_OPTIONAL_HEADER64 pOptionalHeader64 = NULL;
-	if (m_bIsWow64)
+
+	//todo：测试这里错误指针是否会捕获异常
+	try
+	{
+		//todo：Wow64会的区别
+		//todo：Wow64进程有无影响——有影响，32位进程和64位进程地址空间不同
+		//这里要判断的是被打开的进程是32位还是64位，被打开的进程是64位我们就要模拟64位空间
+		if (m_bIsWow64)
+		{
+
+		}
+		else
+		{
+			//这里假设载入的是64位的DLL
+			pDosHeader = (PIMAGE_DOS_HEADER)pBuffer;
+			if (IMAGE_DOS_SIGNATURE == pDosHeader->e_magic)
+			{
+				pPeInfo->pPeHeader = (PIMAGE_NT_HEADERS64)((UINT64)pBuffer + pDosHeader->e_lfanew);
+				if (IMAGE_NT_SIGNATURE == pPeInfo->pPeHeader->Signature)
+				{
+					pPeInfo->szSectionHeader = IMAGE_FIRST_SECTION(pPeInfo->pPeHeader);
+					pPeInfo->dwSectionCnt = pPeInfo->pPeHeader->FileHeader.NumberOfSections;
+					pOptionalHeader64 = &(pPeInfo->pPeHeader->OptionalHeader);
+					pPeInfo->wOptionalHeaderMagic = pOptionalHeader64->Magic;
+					//后面在内存中展开需要用到Align
+					pPeInfo->dwFileAlign = pOptionalHeader64->FileAlignment;
+					pPeInfo->dwSectionAlign = pOptionalHeader64->SectionAlignment;
+
+					//后面获取函数地址要用到
+					pPeInfo->dwExportDirRVA = pOptionalHeader64->DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress;
+					pPeInfo->dwExportDirSize = pOptionalHeader64->DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].Size;
+					pPeInfo->dwImportDirRVA = pOptionalHeader64->DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress;
+					pPeInfo->dwImportDirSize = pOptionalHeader64->DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].Size;
+					pPeInfo->dwRelocDirRVA = pOptionalHeader64->DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC].VirtualAddress;
+					pPeInfo->dwRelocDirSize = pOptionalHeader64->DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC].Size;
+					bRet = TRUE;
+				}
+			}
+		}
+	}
+	catch (...)
+	{
+		bRet = FALSE;
+	}
+	
+	return bRet;
+}
+
+BOOL CR3APIHookScanner::FixBaseReloc(LPVOID pMemoryBuffer, const PPE_INFO const pPeImageInfo, LPVOID lpDLLBase)
+{
+	if (NULL == pMemoryBuffer || NULL == pPeImageInfo)
+	{
+		return FALSE;
+	}
+
+	
+	PIMAGE_BASE_RELOCATION pBaseRelocBlock = NULL;
+	DWORD dwBaseRelocTotalSize = 0;
+	//todo：Wow64进程有无影响——有影响，32位进程和64位进程地址空间不同
+	//这里要判断的是被打开的进程是32位还是64位，被打开的进程是64位我们就要模拟64位空间
+	if (0)
 	{
 
 	}
 	else
 	{
-		pDosHeader = (PIMAGE_DOS_HEADER)pBuffer;
-		if (IMAGE_DOS_SIGNATURE == pDosHeader->e_magic)
+		//模拟64位进程，都得用64位数据进行计算地址空间
+		LPVOID lpOriginImageBase = NULL;
+		INT64 uDiff = 0;
+		LPVOID lpRelocVA = NULL;
+		PUSHORT pNextRelocOffset = NULL;
+		if (IMAGE_NT_OPTIONAL_HDR64_MAGIC == pPeImageInfo->wOptionalHeaderMagic)
 		{
-			pPeInfo->pPeHeader = (PIMAGE_NT_HEADERS64)((UINT64)pBuffer + pDosHeader->e_lfanew);
-			if (IMAGE_NT_SIGNATURE == pPeInfo->pPeHeader->Signature)
+			lpOriginImageBase = (LPVOID)((PIMAGE_NT_HEADERS64)pPeImageInfo->pPeHeader)->OptionalHeader.ImageBase;
+		}
+
+		if (lpDLLBase > lpOriginImageBase)
+		{
+			uDiff = (UINT64)lpDLLBase - (UINT64)lpOriginImageBase;
+		}
+
+		pBaseRelocBlock = (PIMAGE_BASE_RELOCATION)((UINT64)pMemoryBuffer + pPeImageInfo->dwRelocDirRVA);
+		dwBaseRelocTotalSize = pPeImageInfo->dwRelocDirSize;
+		pNextRelocOffset = (PUSHORT)((UINT64)pBaseRelocBlock + sizeof(IMAGE_BASE_RELOCATION));//指向一个重定位块中的偏移数据处
+		if (NULL == pBaseRelocBlock || 0 == dwBaseRelocTotalSize)
+		{
+			return FALSE;
+		}
+
+		//遍历重定位块
+		while (dwBaseRelocTotalSize)
+		{
+			DWORD dwBaseRelocBlockSize = 0;
+			DWORD dwBaseRelocCount = 0;
+			
+			//余下的数据
+			dwBaseRelocTotalSize -= pBaseRelocBlock->SizeOfBlock;
+
+			//本次遍历需要重定位的数据
+			dwBaseRelocBlockSize = pBaseRelocBlock->SizeOfBlock - sizeof(IMAGE_BASE_RELOCATION);
+			dwBaseRelocCount = dwBaseRelocBlockSize / sizeof(USHORT);//需要重定位的数据有多少个
+
+			lpRelocVA = (LPVOID)((UINT64)pMemoryBuffer + (UINT64)pBaseRelocBlock->VirtualAddress);//指向了一个4K的页，需要重定位的数据
+			for (int i = 0; i < dwBaseRelocCount; i++)
 			{
-				pPeInfo->szSectionHeader = IMAGE_FIRST_SECTION(pPeInfo->pPeHeader);
-				pPeInfo->dwSectionCnt = pPeInfo->pPeHeader->FileHeader.NumberOfSections;
-				pOptionalHeader64 = &(pPeInfo->pPeHeader->OptionalHeader);
+				LPVOID lpRelocAddr = NULL;
+				LPVOID lpUnFixedAddr = NULL;
+				WORD wOffset = *(pNextRelocOffset) & 0x0FFF;
+				lpUnFixedAddr = (LPVOID)((UINT64)lpRelocVA + wOffset);
+				*((PINT64)lpUnFixedAddr) += uDiff;
+				switch (*(pNextRelocOffset) >> 12)
+				{
+				case IMAGE_REL_BASED_HIGHLOW:
+					printf("");
+					break;
+				case IMAGE_REL_BASED_HIGH:
+					printf("");
+					break;
+				case IMAGE_REL_BASED_HIGHADJ:
+					printf("");
+					break;
+				case IMAGE_REL_BASED_LOW:
+					printf("");
+					break;
+				case IMAGE_REL_BASED_IA64_IMM64:
+					printf("");
+					break;
+				case IMAGE_REL_BASED_DIR64:
+					printf("");
+					break;
+				case IMAGE_REL_BASED_MIPS_JMPADDR:
+					printf("");
+					break;
+				case IMAGE_REL_BASED_ABSOLUTE:
+					printf("");
+					break;
+				default:
+					return (PIMAGE_BASE_RELOCATION)NULL;
+					//IMAGE_REL_BASED_HIGH
+					//处理各种type
+				}
+				pNextRelocOffset++;
 
-				//后面在内存中展开需要用到Align
-				pPeInfo->dwFileAlign = pOptionalHeader64->FileAlignment;
-				pPeInfo->dwSectionAlign = pOptionalHeader64->SectionAlignment;
-
-				//后面获取函数地址要用到
-				pPeInfo->dwExportDirRVA = pOptionalHeader64->DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress;
-				pPeInfo->dwExportDirSize = pOptionalHeader64->DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].Size;
-				pPeInfo->dwImportDirRVA = pOptionalHeader64->DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress;
-				pPeInfo->dwImportDirSize = pOptionalHeader64->DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].Size;
 			}
+			pBaseRelocBlock = pBaseRelocBlock + pBaseRelocBlock->SizeOfBlock;
+			pNextRelocOffset = (PUSHORT)((UINT64)pBaseRelocBlock + sizeof(IMAGE_BASE_RELOCATION));//指向一个重定位块中的偏移数据处
 		}
 	}
 
 	return TRUE;
 }
 
-BOOL CR3APIHookScanner::FixRelocData(LPVOID pBuffer, PPE_INFO pPeInfo)
+BOOL CR3APIHookScanner::FixBaseRelocBlock(LPVOID, LPVOID)
 {
-	if (NULL == pBuffer || NULL == pPeInfo)
-	{
-		return FALSE;
-	}
-
 	return TRUE;
 }
 

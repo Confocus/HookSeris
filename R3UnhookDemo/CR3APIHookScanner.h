@@ -46,13 +46,17 @@ typedef struct _PROCESS_INFO
 	}
 }PROCESS_INFO, * PPROCESS_INFO;
 
+//存储用得到的关键PE信息
 typedef struct _PE_INFO {
+	WORD wOptionalHeaderMagic;
 	PIMAGE_NT_HEADERS pPeHeader;
 	PIMAGE_SECTION_HEADER szSectionHeader;
 	DWORD dwExportDirRVA;
 	DWORD dwExportDirSize;
 	DWORD dwImportDirRVA;
 	DWORD dwImportDirSize;
+	DWORD dwRelocDirRVA;
+	DWORD dwRelocDirSize;
 	DWORD dwSectionCnt;
 	DWORD dwSectionAlign;
 	DWORD dwFileAlign;
@@ -66,6 +70,7 @@ typedef struct _PE_INFO {
 //
 //typedef PROCESS_INFO* PPROCESS_INFO;
 
+//遍历过程中的回调函数
 typedef BOOL (WINAPI* CALLBACK_EMUNPROCESS)(
 	PPROCESS_INFO pProcessInfo,
 	PBOOL pBreak);
@@ -81,6 +86,7 @@ public:
 	~CR3APIHookScanner();
 	
 	//todo:实现单例、禁止拷贝或拷贝上的深拷贝
+	//todo:实现多线程安全
 
 	/**
 	* 扫描全部进程是否挂钩
@@ -105,7 +111,14 @@ private:
 	BOOL EmurateProcesses(CALLBACK_EMUNPROCESS pCallbackFunc);
 	BOOL EmurateModules(PPROCESS_INFO pProcessInfo, CALLBACK_EMUNMODULE pCallbackFunc);
 	BOOL ScanSingle(PPROCESS_INFO pProcessInfo);
-	LPVOID LoadDllImage(PMODULE_INFO pModuleInfo);
+
+	/**
+	* 模拟DLL文件载入内存后的样子
+	*
+	* @param pModuleInfo : 指向DLL信息相关数据
+	* @return
+	*/
+	LPVOID SimulateLoadDLL(PMODULE_INFO pModuleInfo);
 	VOID ReleaseDllMemoryBuffer(LPVOID* ppDllMemoryBuffer);
 	BOOL AnalyzePEInfo(LPVOID pBuffer, PPE_INFO pPeInfo);
 	/**
@@ -113,7 +126,14 @@ private:
 	*
 	* @return
 	*/
-	BOOL FixRelocData(LPVOID pBuffer, PPE_INFO pPeInfo);
+	BOOL FixBaseReloc(LPVOID pBuffer, PPE_INFO pPeInfo, LPVOID lpDLLBase);
+
+	/**
+	* 重定位段是一个数组，每个成员表示待修复的一块内容，这里修复其中的一块数据
+	*
+	* @return
+	*/
+	BOOL FixBaseRelocBlock(LPVOID, LPVOID);
 
 	BOOL EnableDebugPrivelege();
 
