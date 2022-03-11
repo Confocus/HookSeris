@@ -8,6 +8,22 @@
 
 using namespace std;
 
+//存储用得到的关键PE信息
+typedef struct _PE_INFO {
+	WORD wOptionalHeaderMagic;
+	PIMAGE_NT_HEADERS pPeHeader;
+	PIMAGE_SECTION_HEADER szSectionHeader;
+	DWORD dwExportDirRVA;
+	DWORD dwExportDirSize;
+	DWORD dwImportDirRVA;
+	DWORD dwImportDirSize;
+	DWORD dwRelocDirRVA;
+	DWORD dwRelocDirSize;
+	DWORD dwSectionCnt;
+	DWORD dwSectionAlign;
+	DWORD dwFileAlign;
+}PE_INFO, * PPE_INFO;
+
 typedef struct _MODULE_INFO
 {
 	BYTE* pDllBaseAddr;
@@ -17,6 +33,7 @@ typedef struct _MODULE_INFO
 }MODULE_INFO, * PMODULE_INFO;
 
 //todo：改成类
+//保存进程相关信息
 typedef struct _PROCESS_INFO
 {
 	DWORD dwProcessId;
@@ -46,21 +63,6 @@ typedef struct _PROCESS_INFO
 	}
 }PROCESS_INFO, * PPROCESS_INFO;
 
-//存储用得到的关键PE信息
-typedef struct _PE_INFO {
-	WORD wOptionalHeaderMagic;
-	PIMAGE_NT_HEADERS pPeHeader;
-	PIMAGE_SECTION_HEADER szSectionHeader;
-	DWORD dwExportDirRVA;
-	DWORD dwExportDirSize;
-	DWORD dwImportDirRVA;
-	DWORD dwImportDirSize;
-	DWORD dwRelocDirRVA;
-	DWORD dwRelocDirSize;
-	DWORD dwSectionCnt;
-	DWORD dwSectionAlign;
-	DWORD dwFileAlign;
-}PE_INFO, *PPE_INFO;
 //class PROCESS_INFO
 //{
 //public:
@@ -121,12 +123,20 @@ private:
 	LPVOID SimulateLoadDLL(PMODULE_INFO pModuleInfo);
 	VOID ReleaseDllMemoryBuffer(LPVOID* ppDllMemoryBuffer);
 	BOOL AnalyzePEInfo(LPVOID pBuffer, PPE_INFO pPeInfo);
+
 	/**
 	* 根据Dll实际加载到的地址，修复Dll映像的地址
 	*
 	* @return
 	*/
 	BOOL FixBaseReloc(LPVOID pBuffer, PPE_INFO pPeInfo, LPVOID lpDLLBase);
+
+	/**
+	* 构建在内存中模拟的DLL的导入表
+	*
+	* @return
+	*/
+	BOOL BuildImportTable(LPVOID pBuffer, PPE_INFO pPeInfo, LPVOID lpDLLBase);
 
 	/**
 	* 重定位段是一个数组，每个成员表示待修复的一块内容，这里修复其中的一块数据
@@ -138,11 +148,20 @@ private:
 	BOOL EnableDebugPrivelege();
 
 	/**
+	* 对某个模块进行IATHook扫描
 	* pDllMemoryBuffer模拟从Disk载入到内存后并修复重定向数据之后的DLL的Buffer
 	*
 	* @return
 	*/
-	BOOL DetectSingleModuleInlineHook(PMODULE_INFO pModuleInfo, LPVOID pDllMemoryBuffer);
+	BOOL ScanSingleModuleIATHook(PMODULE_INFO pModuleInfo, LPVOID pDllMemoryBuffer);
+
+	/**
+	* 对某个模块进行InlineHook扫描
+	* pDllMemoryBuffer模拟从Disk载入到内存后并修复重定向数据之后的DLL的Buffer
+	*
+	* @return
+	*/
+	BOOL ScanSingleModuleInlineHook(PMODULE_INFO pModuleInfo, LPVOID pDllMemoryBuffer);
 	DWORD AlignSize(const DWORD dwSize, const DWORD dwAlign);
 	
 	//回调函数
@@ -154,6 +173,9 @@ private:
 	BOOL m_bIsWow64;
 	//static vector<MODULE_INFO*> m_vecModuleInfo;
 	static int m_test;
+	PE_INFO m_OriginDLLInfo;
+	PE_INFO m_SimulateDLLInfo;
+	PE_INFO m_ImageInfo;
 };
 
 

@@ -17,6 +17,10 @@ CR3APIHookScanner::~CR3APIHookScanner()
 
 BOOL CR3APIHookScanner::Init()
 {
+	m_OriginDLLInfo = { 0 };
+	m_SimulateDLLInfo = { 0 };
+	m_ImageInfo = { 0 };
+
 	EnableDebugPrivelege();
 	return TRUE;
 }
@@ -238,9 +242,13 @@ BOOL CR3APIHookScanner::ScanSingle(PPROCESS_INFO pProcessInfo)
 		pDllMemBuffer = SimulateLoadDLL(pModuleInfo);
 		if (NULL != pDllMemBuffer)
 		{
+			//IAT HOOK扫描，所谓的IAT Hook，是篡改了导入表导入函数的地址
+			ScanSingleModuleIATHook(pModuleInfo, pDllMemBuffer);
 			//用模拟载入内存后的dll和内存中真实的dll进行比较
-			DetectSingleModuleInlineHook(pModuleInfo, pDllMemBuffer);
-			ReleaseDllMemoryBuffer(&pDllMemBuffer);
+			//这里的InlineHook其实就是EAT Hook，所谓的EAT Hook，就是跳转到函数执行的内部，然后修改了指令。PE从导入表中拿到一个函数的地址
+			//然后跳到这个函数的内部执行
+			//ScanSingleModuleInlineHook(pModuleInfo, pDllMemBuffer);
+			//ReleaseDllMemoryBuffer(&pDllMemBuffer);
 		}
 	}
 
@@ -309,7 +317,7 @@ LPVOID CR3APIHookScanner::SimulateLoadDLL(PMODULE_INFO pModuleInfo)
 		//todo：修复导入表
 		//todo：修复重定位数据
 		FixBaseReloc(pDllMemoryBuffer, &PEImageInfo, pModuleInfo->pDllBaseAddr);
-
+		BuildImportTable(pDllMemoryBuffer, &PEImageInfo, pModuleInfo->pDllBaseAddr);
 	} while (FALSE);
 
 	if (pDllImageBuffer)
@@ -474,17 +482,30 @@ BOOL CR3APIHookScanner::FixBaseReloc(LPVOID pMemoryBuffer, const PPE_INFO const 
 					printf("");
 					break;
 				default:
-					return (PIMAGE_BASE_RELOCATION)NULL;
+					//return (PIMAGE_BASE_RELOCATION)NULL;
+					break;
 					//IMAGE_REL_BASED_HIGH
 					//处理各种type
 				}
 				pNextRelocOffset++;
 
 			}
-			pBaseRelocBlock = pBaseRelocBlock + pBaseRelocBlock->SizeOfBlock;
+			pBaseRelocBlock = (PIMAGE_BASE_RELOCATION)((UINT64)pBaseRelocBlock + pBaseRelocBlock->SizeOfBlock);
 			pNextRelocOffset = (PUSHORT)((UINT64)pBaseRelocBlock + sizeof(IMAGE_BASE_RELOCATION));//指向一个重定位块中的偏移数据处
 		}
 	}
+
+	return TRUE;
+}
+
+BOOL CR3APIHookScanner::BuildImportTable(LPVOID pBuffer, PPE_INFO pPeInfo, LPVOID lpDLLBase)
+{
+	//去遍历自己依赖的DLL，就能拿到每个依赖的DLL中的函数名
+	//去内存中找那些载入的DLL的导出表，然后拿到地址
+	//然后填充导入表
+	//这里会产生一个问题，就是如果导出表被Hook了怎么办？所以有专门的EATHook检测
+	PE_INFO OriginPEInfo = { 0 };
+	AnalyzePEInfo(lpDLLBase);
 
 	return TRUE;
 }
@@ -522,8 +543,104 @@ BOOL CR3APIHookScanner::EnableDebugPrivelege()
 	return TRUE;
 }
 
-BOOL CR3APIHookScanner::DetectSingleModuleInlineHook(PMODULE_INFO pModuleInfo, LPVOID pDllMemoryBuffer)
+//todo：PE文件自己的导入表可能被Hook
+BOOL CR3APIHookScanner::ScanSingleModuleIATHook(PMODULE_INFO pModuleInfo, LPVOID pDllMemoryBuffer)
 {
+	CHECK_POINTER_NULL(pModuleInfo);
+	CHECK_POINTER_NULL(pDllMemoryBuffer);
+
+	if (0)//Wow64
+	{
+
+	}
+	else
+	{
+		DWORD dwImportTableCount = 0;
+		PIMAGE_IMPORT_DESCRIPTOR pOriginImportTableVA = NULL;
+		PIMAGE_IMPORT_DESCRIPTOR pSimulateOriginImportTableVA = NULL;
+		DWORD dwOriginImportTableSize = 0;
+		PE_INFO OriginDLLInfo = { 0 };
+		PE_INFO SimulateDLLInfo = { 0 };
+		PIMAGE_IMPORT_BY_NAME pName = NULL;
+		PIMAGE_THUNK_DATA pFirstThunk = NULL;
+		PIMAGE_THUNK_DATA pOriginFirstThunk = NULL;
+		PIMAGE_IMPORT_BY_NAME pSimulateName = NULL;
+		PIMAGE_THUNK_DATA pSimulateFirstThunk = NULL;
+		PIMAGE_THUNK_DATA pSimulateOriginFirstThunk = NULL;
+
+		//拿到内存中真实的DLL的信息
+		AnalyzePEInfo(pModuleInfo->pDllBaseAddr, &OriginDLLInfo); //IMAGE_IMPORT_DESCRIPTOR
+
+		if (OriginDLLInfo.dwImportDirRVA && OriginDLLInfo.dwImportDirSize > 0)
+		{
+			dwOriginImportTableSize = OriginDLLInfo.dwImportDirSize;
+			pOriginImportTableVA = (PIMAGE_IMPORT_DESCRIPTOR)(pModuleInfo->pDllBaseAddr + 
+				OriginDLLInfo.dwImportDirRVA);
+			pSimulateOriginImportTableVA = (PIMAGE_IMPORT_DESCRIPTOR)((BYTE*)pDllMemoryBuffer + 
+				OriginDLLInfo.dwImportDirRVA);
+			dwImportTableCount = OriginDLLInfo.dwImportDirSize / sizeof(IMAGE_IMPORT_DESCRIPTOR);//相当于获取DLL的个数
+
+			for (int i = 0; i < dwImportTableCount; i++)
+			{
+				pFirstThunk = (PIMAGE_THUNK_DATA)(pModuleInfo->pDllBaseAddr + 
+					pOriginImportTableVA->FirstThunk);
+				pOriginFirstThunk = (PIMAGE_THUNK_DATA)(pModuleInfo->pDllBaseAddr + 
+					pOriginImportTableVA->OriginalFirstThunk);
+				pSimulateFirstThunk = (PIMAGE_THUNK_DATA)((BYTE*)pDllMemoryBuffer + 
+					pOriginImportTableVA->FirstThunk);
+				pSimulateOriginFirstThunk = (PIMAGE_THUNK_DATA)((BYTE*)pDllMemoryBuffer + 
+					pOriginImportTableVA->OriginalFirstThunk);
+
+				while (pFirstThunk->u1.Function)
+				{
+					static int j = 1;
+					__try
+					{
+						pName = (PIMAGE_IMPORT_BY_NAME)(pModuleInfo->pDllBaseAddr + pOriginFirstThunk->u1.AddressOfData);
+						pSimulateName = (PIMAGE_IMPORT_BY_NAME)((BYTE*)pDllMemoryBuffer + pOriginFirstThunk->u1.AddressOfData);
+						//IsBadReadPtr()
+						printf("%d.%s		", j, pName->Name);
+						printf("%d. 0x%08X\n", j, pFirstThunk->u1.Function);
+						printf("%d.%s		", j, pSimulateName->Name);
+						printf("%d. 0x%08X\n", j++, pSimulateFirstThunk->u1.Function);
+						if (pFirstThunk->u1.Function != pSimulateFirstThunk->u1.Function)
+						{
+							printf("IAT Hook found!\n");
+						}
+					}
+					__except(EXCEPTION_EXECUTE_HANDLER)
+					{
+						//printf("catch exception");
+						/*printf("%d.%d		", j, pName->Hint);
+						printf("%d. 0x%08X\n", j++, pFirstThunk->u1.Function);*/
+					}
+					pFirstThunk++;
+					pOriginFirstThunk++;
+					pSimulateFirstThunk++;
+					pSimulateOriginFirstThunk++;
+				}
+				pOriginImportTableVA++;
+			}
+		}
+	}
+
+	return TRUE;
+}
+
+BOOL CR3APIHookScanner::ScanSingleModuleInlineHook(PMODULE_INFO pModuleInfo, LPVOID pDllMemoryBuffer)
+{
+	CHECK_POINTER_NULL(pModuleInfo);
+	CHECK_POINTER_NULL(pDllMemoryBuffer);
+
+	if (0)//Wow64
+	{
+
+	}
+	else
+	{
+
+	}
+
 	return TRUE;
 }
 
