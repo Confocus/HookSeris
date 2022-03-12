@@ -163,18 +163,33 @@ private:
 	*/
 	BOOL ScanSingleModuleInlineHook(PMODULE_INFO pModuleInfo, LPVOID pDllMemoryBuffer);
 	DWORD AlignSize(const DWORD dwSize, const DWORD dwAlign);
+
+	LPVOID GetExportFuncAddrByName(LPVOID pExportDLLBase, const wchar_t* pDLLName, const wchar_t* pFuncName);
+
+	LPVOID GetExportFuncAddrByOrdinal(LPVOID pExportDLLBase, const wchar_t* pDLLName, DWORD dwOrdinal);
 	
 	//回调函数
 	static BOOL CbCollectProcessInfo(PPROCESS_INFO pProcessInfo, PBOOL pBreak);
 	static BOOL CbCollectModuleInfo(PPROCESS_INFO pProcessInfo, PMODULE_INFO pModuleInfo);
 
+	wchar_t* ConvertCharToWchar(const char* p);
+	VOID FreeConvertedWchar(wchar_t* &p);
+
 private:
 	static vector<PROCESS_INFO*> m_vecProcessInfo;
+
+	//当前正在被扫描的那个Process
+	PROCESS_INFO* m_pCurProcess;
 	BOOL m_bIsWow64;
-	//static vector<MODULE_INFO*> m_vecModuleInfo;
 	static int m_test;
+
+	//内存中实际的某个DLL的PE信息
 	PE_INFO m_OriginDLLInfo;
+
+	//内存中实际的对应的DLL的PE信息
 	PE_INFO m_SimulateDLLInfo;
+
+	//磁盘镜像文件的PE信息
 	PE_INFO m_ImageInfo;
 };
 
