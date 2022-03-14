@@ -5,6 +5,7 @@
 #define MAX_MODULE_PATH	1024
 
 #include <vector>
+#include <unordered_map>
 
 using namespace std;
 
@@ -114,6 +115,8 @@ private:
 	BOOL EmurateModules(PPROCESS_INFO pProcessInfo, CALLBACK_EMUNMODULE pCallbackFunc);
 	BOOL ScanSingle(PPROCESS_INFO pProcessInfo);
 
+	template<typename PApiSetMap, typename PApiSetEntry, typename PHostArray, typename PHostEntry>
+	BOOL InitApiSchema();
 	/**
 	* 模拟DLL文件载入内存后的样子
 	*
@@ -164,9 +167,9 @@ private:
 	BOOL ScanSingleModuleInlineHook(PMODULE_INFO pModuleInfo, LPVOID pDllMemoryBuffer);
 	DWORD AlignSize(const DWORD dwSize, const DWORD dwAlign);
 
-	LPVOID GetExportFuncAddrByName(LPVOID pExportDLLBase, const wchar_t* pDLLName, const wchar_t* pFuncName);
+	LPVOID GetExportFuncAddrByName(LPVOID pExportDLLBase, PPE_INFO pExportDLLInfo, const wchar_t* pDLLName, const wchar_t* pFuncName, const wchar_t* pPreHostDLL);
 
-	LPVOID GetExportFuncAddrByOrdinal(LPVOID pExportDLLBase, const wchar_t* pDLLName, DWORD dwOrdinal);
+	LPVOID GetExportFuncAddrByOrdinal(LPVOID pExportDLLBase, PPE_INFO pExportDLLInfo, const wchar_t* pDLLName, WORD wOrdinal);
 	
 	//回调函数
 	static BOOL CbCollectProcessInfo(PPROCESS_INFO pProcessInfo, PBOOL pBreak);
@@ -174,6 +177,10 @@ private:
 
 	wchar_t* ConvertCharToWchar(const char* p);
 	VOID FreeConvertedWchar(wchar_t* &p);
+
+	std::wstring RedirectDLLPath(const wchar_t* path, const wchar_t* pPreHostDLL);
+	BOOL ProbeSxSRedirect(std::wstring& path);//, Process& proc, HANDLE actx /*= INVALID_HANDLE_VALUE*/
+	LPVOID RedirectionExportFuncAddr(const char* lpExportFuncAddr, const wchar_t* pPreHostDLL);
 
 private:
 	static vector<PROCESS_INFO*> m_vecProcessInfo;
@@ -191,6 +198,7 @@ private:
 
 	//磁盘镜像文件的PE信息
 	PE_INFO m_ImageInfo;
+	std::unordered_map<std::wstring, std::vector<std::wstring>> m_mapApiSchema;
 };
 
 

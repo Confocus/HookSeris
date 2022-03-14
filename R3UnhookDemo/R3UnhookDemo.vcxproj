@@ -145,7 +145,10 @@
     <ClCompile Include="ScannerMain.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="ApiSet.h" />
     <ClInclude Include="CR3APIHookScanner.h" />
+    <ClInclude Include="nativestructure.h" />
+    <ClInclude Include="nativeenums.h" />
     <ClInclude Include="stdafx.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
