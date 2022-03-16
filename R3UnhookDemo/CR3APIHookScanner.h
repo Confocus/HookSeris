@@ -3,6 +3,7 @@
 #define MAX_PROCESS_LEN	520
 #define MAX_MODULE_LEN	520
 #define MAX_MODULE_PATH	1024
+#define INLINE_HOOK_LEN	0x10
 
 #include <vector>
 #include <unordered_map>
@@ -174,6 +175,11 @@ private:
 	* @return
 	*/
 	BOOL ScanSingleModuleInlineHook(PMODULE_INFO pModuleInfo, LPVOID pDllMemoryBuffer);
+
+	BOOL ScanSingleModuleInlineHook2(PMODULE_INFO pModuleInfo, LPVOID pDllMemoryBuffer);
+
+	BOOL GetExportFuncsBoundary(PMODULE_INFO pModuleInfo, std::vector<UINT64>& vecOffsets);
+
 	DWORD AlignSize(const DWORD dwSize, const DWORD dwAlign);
 
 	LPVOID GetExportFuncAddrByName(LPVOID pExportDLLBase, PPE_INFO pExportDLLInfo, const wchar_t* pDLLName, const wchar_t* pFuncName, const wchar_t* pPreHostDLL);
