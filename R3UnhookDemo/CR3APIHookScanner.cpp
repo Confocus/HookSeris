@@ -264,6 +264,8 @@ BOOL CR3APIHookScanner::ScanSingle(PPROCESS_INFO pProcessInfo)
 		{
 			//IAT HOOK扫描，所谓的IAT Hook，是篡改了导入表导入函数的地址
 			ScanSingleModuleIATHook(pModuleInfo, pDllMemBuffer);
+			ScanSingleModuleEATHook(pModuleInfo, pDllMemBuffer);
+
 			//用模拟载入内存后的dll和内存中真实的dll进行比较
 			//这里的InlineHook其实就是EAT Hook，所谓的EAT Hook，就是跳转到函数执行的内部，然后修改了指令。PE从导入表中拿到一个函数的地址
 			//然后跳到这个函数的内部执行
@@ -736,7 +738,7 @@ BOOL CR3APIHookScanner::ScanSingleModuleIATHook(PMODULE_INFO pModuleInfo, LPVOID
 
 		//拿到内存中真实的DLL的信息
 		//AnalyzePEInfo(pModuleInfo->pDllBaseAddr, &OriginDLLInfo); //IMAGE_IMPORT_DESCRIPTOR
-
+		//检测exe的每个载入的DLL的导入函数的地址；为什么不是只检测exe的导入函数？
 		if (m_OriginDLLInfo.dwImportDirRVA && m_OriginDLLInfo.dwImportDirSize > 0)
 		{
 			dwOriginImportTableSize = m_OriginDLLInfo.dwImportDirSize;
@@ -788,6 +790,89 @@ BOOL CR3APIHookScanner::ScanSingleModuleIATHook(PMODULE_INFO pModuleInfo, LPVOID
 				}
 				pOriginImportTableVA++;
 			}
+		}
+	}
+
+	return TRUE;
+}
+
+BOOL CR3APIHookScanner::ScanSingleModuleEATHook(PMODULE_INFO pModuleInfo, LPVOID pDllMemoryBuffer)
+{
+	CHECK_POINTER_NULL(pModuleInfo, FALSE);
+	CHECK_POINTER_NULL(pDllMemoryBuffer, FALSE);
+	PIMAGE_EXPORT_DIRECTORY pExportTable = NULL;
+	PIMAGE_EXPORT_DIRECTORY pSimulateExportTable = NULL;
+	DWORD* pExportFuncAddr = NULL;
+	DWORD* pSimulateExportFuncAddr = NULL;
+	DWORD* pExportFuncName = NULL;
+	DWORD* pSimulateExportFuncName = NULL;
+	WORD* pOrdinalAddr = NULL;
+	WORD wOrdinal = 0;
+	DWORD dwExportSize = 0;
+	DWORD dwNoNameCount = 0;
+
+	if (NULL == m_OriginDLLInfo.dwExportDirRVA || 0 == m_OriginDLLInfo.dwExportDirSize)
+	{
+		return FALSE;
+	}
+
+	if (0)//Wow64
+	{
+
+	}
+	else
+	{
+		pSimulateExportTable = (PIMAGE_EXPORT_DIRECTORY)((BYTE*)pDllMemoryBuffer + m_OriginDLLInfo.dwExportDirRVA);
+		pExportTable = (PIMAGE_EXPORT_DIRECTORY)((BYTE*)pModuleInfo->pDllBaseAddr + m_OriginDLLInfo.dwExportDirRVA);
+		pSimulateExportFuncAddr = (DWORD*)((BYTE*)pDllMemoryBuffer + pExportTable->AddressOfFunctions);
+		pExportFuncAddr = (DWORD*)((BYTE*)pModuleInfo->pDllBaseAddr + pExportTable->AddressOfFunctions);
+		pSimulateExportFuncName = (DWORD*)((BYTE*)pDllMemoryBuffer + pExportTable->AddressOfNames);
+		pExportFuncName = (DWORD*)((BYTE*)pModuleInfo->pDllBaseAddr + pExportTable->AddressOfNames);
+		pOrdinalAddr = (WORD*)((BYTE*)pModuleInfo->pDllBaseAddr + pExportTable->AddressOfNameOrdinals);
+		dwNoNameCount = pExportTable->NumberOfFunctions - pExportTable->NumberOfNames;
+
+		//AddressOfFunctions的无名导出函数是排在前几个的。
+		for (int i = 0; i < dwNoNameCount; i++)
+		{
+			if (pSimulateExportFuncAddr[i] != pExportFuncAddr[i])
+			{
+				printf("EAT Hook found.\n");
+			}
+		}
+
+		for (int i = 0; i < pExportTable->NumberOfNames; i++)
+		{
+			//实验证明pExportFuncName和pExportFuncAddr并不是根据i对应的，而是根据Ordinal联系上的
+
+			//由于有无名导出函数在，这里这样拿名字会访问越界
+			wOrdinal = pOrdinalAddr[i];
+			char* pName = (char*)pModuleInfo->pDllBaseAddr + pExportFuncName[i];
+			char* pSimName = (char*)pDllMemoryBuffer + pSimulateExportFuncName[i];
+			/*char* pFunc = (char*)pModuleInfo->pDllBaseAddr + pExportFuncAddr[wOrdinal];
+			char* pSimFunc = (char*)pDllMemoryBuffer + pSimulateExportFuncAddr[wOrdinal];*/
+
+			//if ((((DWORD*)Eat)[NameOrd[i]] != ((DWORD*)OriEat)[NameOrd[i]]) && (OriApiAddress != ApiAddress))
+			//这里必须要求是偏移和实际地址都相等。前者得到的是偏移。
+			//
+			//pfnUnmarshallRoutines
+			if (strcmp("pfnUnmarshallRoutines", pName) == 0)
+			{
+				printf("");
+			}
+			//todo：未解决redirection的问题
+			printf("ori name:%s		", pName);
+			//printf("0x%016I64X\n", pFunc);
+			printf("0x%016I64X\n", pExportFuncAddr[wOrdinal]);
+
+			printf("sim name:%s		", pSimName);
+			//printf("0x%016I64X\n", pSimFunc);
+			printf("0x%016I64X\n\n", pSimulateExportFuncAddr[wOrdinal]);
+
+			if (pSimulateExportFuncAddr[i] != pExportFuncAddr[i])
+			{
+				printf("EAT Hook found.\n");
+			}
+			printf("");
 		}
 	}
 

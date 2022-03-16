@@ -159,6 +159,15 @@ private:
 	BOOL ScanSingleModuleIATHook(PMODULE_INFO pModuleInfo, LPVOID pDllMemoryBuffer);
 
 	/**
+	* 对某个模块进行EATHook扫描
+	* pDllMemoryBuffer模拟从Disk载入到内存后并修复重定向数据之后的DLL的Buffer
+	*
+	* 说明：如果在构建某个DLL的导入表之前，提供导出的DLL的导出表被Hook了，也可能会篡改之后的函数调用地址
+	* @return
+	*/
+	BOOL ScanSingleModuleEATHook(PMODULE_INFO pModuleInfo, LPVOID pDllMemoryBuffer);
+
+	/**
 	* 对某个模块进行InlineHook扫描
 	* pDllMemoryBuffer模拟从Disk载入到内存后并修复重定向数据之后的DLL的Buffer
 	*
