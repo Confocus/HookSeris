@@ -250,6 +250,8 @@ BOOL CR3APIHookScanner::ScanSingle(PPROCESS_INFO pProcessInfo)
 	}
 
 	IsWow64Process(hProcess, &bIsWow64);
+	//缓存下这个exe中所有载入的DLL对应的模拟载入
+	GetALLModuleSimCache(pProcessInfo);
 
 	//遍历这个进程中的所有模块
 	//todo:也要考虑快照的时效性的问题
@@ -269,9 +271,11 @@ BOOL CR3APIHookScanner::ScanSingle(PPROCESS_INFO pProcessInfo)
 			//用模拟载入内存后的dll和内存中真实的dll进行比较
 			//这里的InlineHook其实就是EAT Hook，所谓的EAT Hook，就是跳转到函数执行的内部，然后修改了指令。PE从导入表中拿到一个函数的地址
 			//然后跳到这个函数的内部执行
-			ScanSingleModuleInlineHook(pModuleInfo, pDllMemBuffer);
+			ScanSingleModuleInlineHook2(pModuleInfo, pDllMemBuffer);
 			//ReleaseDllMemoryBuffer(&pDllMemBuffer);
 		}
+
+		ReleaseALLModuleSimCache();
 	}
 
 	CloseHandle(hProcess);
@@ -324,7 +328,7 @@ LPVOID CR3APIHookScanner::SimulateLoadDLL(PMODULE_INFO pModuleInfo)
 	{
 		return NULL;
 	}
-	printf("Load Dll path:%ls\n", pModuleInfo->szModulePath);
+	printf("Load DLL path:%ls\n", pModuleInfo->szModulePath);
 
 	HANDLE hFile = NULL;
 	DWORD dwNumberOfBytesRead = 0;
@@ -388,6 +392,11 @@ LPVOID CR3APIHookScanner::SimulateLoadDLL(PMODULE_INFO pModuleInfo)
 	CloseHandle(hFile);
 
 	return pDllMemoryBuffer;
+}
+
+VOID CR3APIHookScanner::FreeSimulateDLL(PMODULE_INFO pModuleInfo)
+{
+	return;
 }
 
 VOID CR3APIHookScanner::ReleaseDllMemoryBuffer(LPVOID* ppDllMemoryBuffer)
@@ -1038,6 +1047,7 @@ BOOL CR3APIHookScanner::ScanSingleModuleInlineHook2(PMODULE_INFO pModuleInfo, LP
 					}
 				}
 
+
 				if (memcmp((BYTE*)pDllMemoryBuffer + ImportFuncOffset, ExportAddr, INLINE_HOOK_LEN) != 0)
 				{
 					printf("IAT Inlie Hook.\n");
@@ -1400,4 +1410,29 @@ LPVOID CR3APIHookScanner::RedirectionExportFuncAddr(const char* lpExportFuncAddr
 	FreeConvertedWchar(wpFuncName);
 
 	return lpRedirectedExportFuncAddr;
+}
+
+BOOL CR3APIHookScanner::GetALLModuleSimCache(PPROCESS_INFO pProcessInfo)
+{
+	CHECK_POINTER_NULL(pProcessInfo, FALSE);
+	//直接把待分析的DLL都缓存下来
+	//todo：这里如何区分32位or64位
+	for (auto pModuleInfo : pProcessInfo->m_vecModuleInfo)
+	{
+		LPVOID lpSimDLLMemBuffer = SimulateLoadDLL(pModuleInfo);
+		m_mapSimDLLCache.insert(std::make_pair(pModuleInfo->szModulePath, lpSimDLLMemBuffer));
+	}
+
+	return TRUE;
+}
+
+BOOL CR3APIHookScanner::ReleaseALLModuleSimCache()
+{
+	for (auto p : m_mapSimDLLCache) {
+		if (p.second != NULL)
+		{
+			delete[] p.second;
+			p.second = NULL;
+		}
+	}
 }

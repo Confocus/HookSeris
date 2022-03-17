@@ -125,6 +125,9 @@ private:
 	* @return
 	*/
 	LPVOID SimulateLoadDLL(PMODULE_INFO pModuleInfo);
+
+	VOID FreeSimulateDLL(PMODULE_INFO pModuleInfo);
+
 	VOID ReleaseDllMemoryBuffer(LPVOID* ppDllMemoryBuffer);
 	BOOL AnalyzePEInfo(LPVOID pBuffer, PPE_INFO pPeInfo);
 
@@ -197,6 +200,9 @@ private:
 	BOOL ProbeSxSRedirect(std::wstring& path);//, Process& proc, HANDLE actx /*= INVALID_HANDLE_VALUE*/
 	LPVOID RedirectionExportFuncAddr(const char* lpExportFuncAddr, const wchar_t* pPreHostDLL);
 
+	BOOL GetALLModuleSimCache(PPROCESS_INFO pProcessInfo);
+	BOOL ReleaseALLModuleSimCache();
+
 private:
 	static vector<PROCESS_INFO*> m_vecProcessInfo;
 
@@ -214,9 +220,7 @@ private:
 	//磁盘镜像文件的PE信息
 	PE_INFO m_ImageInfo;
 	std::unordered_map<std::wstring, std::vector<std::wstring>> m_mapApiSchema;
+
+	//缓存模拟载入的DLL镜像
+	std::unordered_map<std::wstring, LPVOID> m_mapSimDLLCache;
 };
-
-
-//参考：
-//https://github.com/czp541308303/AntiHook/blob/main/scanhook.cpp
-//https://github.com/NtRaiseHardError/Antimalware-Research/blob/master/Generic/Userland%20Hooking/AntiHook/AntiHook/AntiHook/AntiHook.c
