@@ -143,7 +143,7 @@ private:
 	*
 	* @return
 	*/
-	BOOL BuildImportTable(LPVOID pBuffer, PPE_INFO pPeInfo, LPVOID lpDLLBase);
+	BOOL BuildImportTable(LPVOID pBuffer, PPE_INFO pPeInfo, PMODULE_INFO pModuleInfo);
 
 	/**
 	* 重定位段是一个数组，每个成员表示待修复的一块内容，这里修复其中的一块数据
@@ -185,7 +185,7 @@ private:
 
 	DWORD AlignSize(const DWORD dwSize, const DWORD dwAlign);
 
-	LPVOID GetExportFuncAddrByName(LPVOID pExportDLLBase, PPE_INFO pExportDLLInfo, const wchar_t* pFuncName, const wchar_t* pPreHostDLL);
+	LPVOID GetExportFuncAddrByName(LPVOID pExportDLLBase, PPE_INFO pExportDLLInfo, const wchar_t* pFuncName, const wchar_t* pBaseDLL, const wchar_t* pPreHostDLL);
 
 	LPVOID GetExportFuncAddrByOrdinal(LPVOID pExportDLLBase, PPE_INFO pExportDLLInfo, WORD wOrdinal);
 	
@@ -196,9 +196,9 @@ private:
 	wchar_t* ConvertCharToWchar(const char* p);
 	VOID FreeConvertedWchar(wchar_t* &p);
 
-	std::wstring RedirectDLLPath(const wchar_t* path, const wchar_t* pPreHostDLL);
+	std::wstring RedirectDLLPath(const wchar_t* path, const wchar_t* pBaseDLL, const wchar_t* pPreHostDLL);
 	BOOL ProbeSxSRedirect(std::wstring& path);//, Process& proc, HANDLE actx /*= INVALID_HANDLE_VALUE*/
-	LPVOID RedirectionExportFuncAddr(const char* lpExportFuncAddr, const wchar_t* pPreHostDLL);
+	LPVOID RedirectionExportFuncAddr(const char* lpExportFuncAddr, const wchar_t* pBaseDLL,  const wchar_t* pPreHostDLL);
 
 	BOOL LoadALLModuleSimCache(PPROCESS_INFO pProcessInfo);
 	VOID ReleaseALLModuleSimCache();

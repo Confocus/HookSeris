@@ -216,6 +216,7 @@ BOOL CR3APIHookScanner::EmurateModules(PPROCESS_INFO pProcessInfo, CALLBACK_EMUN
 			ZeroMemory(pModuleInfo, sizeof(PMODULE_INFO));
 			pModuleInfo->pDllBaseAddr = ModuleEntry32.modBaseAddr;
 			pModuleInfo->dwSizeOfImage = ModuleEntry32.modBaseSize;
+			//todo：全部转换成小写
 			wmemcpy_s(pModuleInfo->szModuleName, MAX_MODULE_LEN, ModuleEntry32.szModule, wcslen(ModuleEntry32.szModule));
 			wmemcpy_s(pModuleInfo->szModulePath, MAX_MODULE_PATH, ModuleEntry32.szExePath, wcslen(ModuleEntry32.szExePath));
 		}
@@ -319,7 +320,9 @@ BOOL CR3APIHookScanner::InitApiSchema()
 
 		m_mapApiSchema.emplace(dllName, std::move(vhosts));
 	}
-
+	//api-ms-win-stateseparation-helpers-l1-1
+	//auto p = m_mapApiSchema[L"api-ms-win-core-processthreads-l1-1-0"];
+	//auto p = m_mapApiSchema[L"api-ms-win-stateseparation-helpers-l1-1"];
 	return TRUE;
 }
 
@@ -381,7 +384,7 @@ LPVOID CR3APIHookScanner::SimulateLoadDLL(PMODULE_INFO pModuleInfo)
 		}
 
 		FixBaseReloc(pDllMemoryBuffer, &PEImageInfo, pModuleInfo->pDllBaseAddr);
-		BuildImportTable(pDllMemoryBuffer, &PEImageInfo, pModuleInfo->pDllBaseAddr);
+		BuildImportTable(pDllMemoryBuffer, &PEImageInfo, pModuleInfo);
 	} while (FALSE);
 
 	if (pDllImageBuffer)
@@ -582,7 +585,7 @@ BOOL CR3APIHookScanner::FixBaseReloc(LPVOID pMemoryBuffer, const PPE_INFO const 
 	return TRUE;
 }
 
-BOOL CR3APIHookScanner::BuildImportTable(LPVOID pDllMemoryBuffer, PPE_INFO pPeInfo, LPVOID lpDLLBase)
+BOOL CR3APIHookScanner::BuildImportTable(LPVOID pDllMemoryBuffer, PPE_INFO pPeInfo, PMODULE_INFO pModuleInfo)
 {
 	//1、去遍历自己依赖的DLL，就能拿到每个依赖的DLL中的函数名
 	//2、去内存中找那些载入的DLL的导出表，然后拿到地址
@@ -590,7 +593,7 @@ BOOL CR3APIHookScanner::BuildImportTable(LPVOID pDllMemoryBuffer, PPE_INFO pPeIn
 	//4、这里会产生一个问题，就是如果导出表被Hook了怎么办？所以有专门的EATHook检测
 	CHECK_POINTER_NULL(pDllMemoryBuffer, FALSE);
 	CHECK_POINTER_NULL(pPeInfo, FALSE);
-	CHECK_POINTER_NULL(lpDLLBase, FALSE);
+	CHECK_POINTER_NULL(pModuleInfo, FALSE);
 
 	DWORD dwErrCode = 0;
 	PE_INFO OriginPEInfo = { 0 };
@@ -608,7 +611,6 @@ BOOL CR3APIHookScanner::BuildImportTable(LPVOID pDllMemoryBuffer, PPE_INFO pPeIn
 		DWORD dwOriginImportTableSize = 0;
 		PE_INFO SimulateDLLInfo = { 0 };
 		PIMAGE_IMPORT_BY_NAME pName = NULL;
-		PIMAGE_IMPORT_BY_NAME pName2 = NULL;
 		PIMAGE_THUNK_DATA pFirstThunk = NULL;
 		PIMAGE_THUNK_DATA pOriginFirstThunk = NULL;
 		PIMAGE_IMPORT_BY_NAME pSimulateName = NULL;
@@ -639,7 +641,13 @@ BOOL CR3APIHookScanner::BuildImportTable(LPVOID pDllMemoryBuffer, PPE_INFO pPeIn
 				PE_INFO ImportDLLInfo = { 0 };
 				wcsDLLName = ConvertCharToWchar(pDLLName);
 				dwErrCode = GetLastError();
-				wsRedirectedDLLName = RedirectDLLPath(wcsDLLName, NULL);//这里是第一次调用RedirectDLLPath
+
+				if (wcscmp(wcsDLLName, L"api-ms-win-core-processthreads-l1-1-0.dll") == 0)
+				{
+					printf("");
+				}
+
+				wsRedirectedDLLName = RedirectDLLPath(wcsDLLName, pModuleInfo->szModuleName, NULL);//这里是第一次调用RedirectDLLPath
 				if (0 != wsRedirectedDLLName.size())
 				{
 					lpImportDLLAddr = GetModuleHandle(wsRedirectedDLLName.c_str());
@@ -677,25 +685,15 @@ BOOL CR3APIHookScanner::BuildImportTable(LPVOID pDllMemoryBuffer, PPE_INFO pPeIn
 						//拿到导入函数名，根据导入函数名，去查对应的DLL的导出函数地址
 						wchar_t* wcsFuncName = NULL;
 						pName = (PIMAGE_IMPORT_BY_NAME)((BYTE*)pDllMemoryBuffer + pSimulateOriginFirstThunk->u1.AddressOfData);
-						pName2 = (PIMAGE_IMPORT_BY_NAME)((BYTE*)pDllMemoryBuffer + pSimulateFirstThunk->u1.AddressOfData);
 
 						wcsFuncName = ConvertCharToWchar(pName->Name);
-						if (wcscmp(wcsFuncName, L"__C_specific_handler") == 0)
+						
+						//OpenProcessToken
+						if (_wcsicmp(wcsFuncName, L"OpenProcessToken") == 0)
 						{
 							printf("");
 						}
-
-						if (_wcsicmp(wcsFuncName, L"ProcessIdToSessionId") == 0)
-						{
-							printf("");
-						}
-
-						if (_wcsicmp(wcsFuncName, L"ProcessIdToSessionIdStub") == 0)
-						{
-							printf("");
-						}
-
-						ExportAddr = GetExportFuncAddrByName(lpImportDLLAddr, &ImportDLLInfo, wcsFuncName, wsRedirectedDLLName.c_str());
+						ExportAddr = GetExportFuncAddrByName(lpImportDLLAddr, &ImportDLLInfo, wcsFuncName, pModuleInfo->szModuleName, wsRedirectedDLLName.c_str());
 						FreeConvertedWchar(wcsFuncName);
 					}
 
@@ -1021,7 +1019,7 @@ BOOL CR3APIHookScanner::ScanSingleModuleInlineHook2(PMODULE_INFO pModuleInfo, LP
 			PE_INFO ImportDLLInfo = { 0 };
 			wcsDLLName = ConvertCharToWchar(pDLLName);
 			dwErrCode = GetLastError();
-			wsRedirectedDLLName = RedirectDLLPath(wcsDLLName, NULL);//这里是第一次调用RedirectDLLPath
+			wsRedirectedDLLName = RedirectDLLPath(wcsDLLName, pModuleInfo->szModuleName, NULL);
 			if (0 != wsRedirectedDLLName.size())
 			{
 				lpImportDLLAddr = GetModuleHandle(wsRedirectedDLLName.c_str());
@@ -1070,7 +1068,7 @@ BOOL CR3APIHookScanner::ScanSingleModuleInlineHook2(PMODULE_INFO pModuleInfo, LP
 					{
 						printf("");
 					}
-					ExportAddr = GetExportFuncAddrByName(lpImportDLLAddr, &ImportDLLInfo, wcsFuncName, wsRedirectedDLLName.c_str());
+					ExportAddr = GetExportFuncAddrByName(lpImportDLLAddr, &ImportDLLInfo, wcsFuncName, pModuleInfo->szModuleName, wsRedirectedDLLName.c_str());
 					FreeConvertedWchar(wcsFuncName);
 				}
 
@@ -1152,12 +1150,13 @@ DWORD CR3APIHookScanner::AlignSize(const DWORD dwSize, const DWORD dwAlign)
 	return ((dwSize + dwAlign - 1) / dwAlign * dwAlign);
 }
 
-LPVOID CR3APIHookScanner::GetExportFuncAddrByName(LPVOID pExportDLLBase, PPE_INFO pExportDLLInfo, const wchar_t* pFuncName, const wchar_t* pPreHostDLL)
+LPVOID CR3APIHookScanner::GetExportFuncAddrByName(LPVOID pExportDLLBase, PPE_INFO pExportDLLInfo, const wchar_t* pFuncName, const wchar_t* pBaseDLL, const wchar_t* pPreHostDLL)
 {
 	//这个pOriginDLLBase是用来查询导出表的DLL，不是需要修复的DLL
 	CHECK_POINTER_NULL(pFuncName, NULL);
 	CHECK_POINTER_NULL(pExportDLLBase, NULL);
 	CHECK_POINTER_NULL(pExportDLLInfo, NULL);
+	CHECK_POINTER_NULL(pBaseDLL, NULL);
 
 	PIMAGE_EXPORT_DIRECTORY pExportTable = NULL;
 	DWORD dwExportSize = 0;
@@ -1197,7 +1196,7 @@ LPVOID CR3APIHookScanner::GetExportFuncAddrByName(LPVOID pExportDLLBase, PPE_INF
 		{
 			//todo：redirection
 			printf("");
-			lpExportFuncAddr = RedirectionExportFuncAddr((char*)lpExportFuncAddr, pPreHostDLL);
+			lpExportFuncAddr = RedirectionExportFuncAddr((char*)lpExportFuncAddr, pBaseDLL, pPreHostDLL);
 		}
 	}
 
@@ -1291,11 +1290,15 @@ VOID CR3APIHookScanner::FreeConvertedWchar(wchar_t* &p)
 	return;
 }
 
-std::wstring CR3APIHookScanner::RedirectDLLPath(const wchar_t* path, const wchar_t* pPreHostDLL)
+std::wstring CR3APIHookScanner::RedirectDLLPath(const wchar_t* path, const wchar_t* pBaseDLL, const wchar_t* pPreHostDLL)
 {
 	CHECK_POINTER_NULL(path, L"");
+	CHECK_POINTER_NULL(pBaseDLL, L"");
+
 	std::wstring filename = path;
 	std::wstring wsPreHostDLL;
+	std::wstring wsBaseDLL;
+	wsBaseDLL = pBaseDLL;
 	if (!pPreHostDLL)
 	{
 		wsPreHostDLL = L"";
@@ -1314,7 +1317,15 @@ std::wstring CR3APIHookScanner::RedirectDLLPath(const wchar_t* path, const wchar
 	if (iter != m_mapApiSchema.end())
 	{
 		// Select appropriate api host
-		return iter->second.front() != wsPreHostDLL ? iter->second.front() : iter->second.back();
+		if (_wcsicmp(iter->second.front().c_str(), wsBaseDLL.c_str()) != 0 &&
+			_wcsicmp(iter->second.front().c_str() , wsPreHostDLL.c_str()) != 0)
+		{
+			return iter->second.front();
+		}
+
+		return iter->second.back();
+		//return _wcsicmp(iter->second.front().c_str(), wsBaseDLL.c_str()) != 0 ? iter->second.front() : iter->second.back();
+		//return iter->second.front() != wsBaseDLL ? iter->second.front() : iter->second.back();
 	}
 
 	return L"";
@@ -1406,7 +1417,7 @@ BOOL CR3APIHookScanner::ProbeSxSRedirect(std::wstring& path)
 	return TRUE;
 }
 
-LPVOID CR3APIHookScanner::RedirectionExportFuncAddr(const char* lpExportFuncAddr, const wchar_t* pPreHostDLL)
+LPVOID CR3APIHookScanner::RedirectionExportFuncAddr(const char* lpExportFuncAddr, const wchar_t* pBaseDLL, const wchar_t* pPreHostDLL)
 {
 	CHECK_POINTER_NULL(lpExportFuncAddr, FALSE);
 	UINT uLen = 0;
@@ -1436,7 +1447,7 @@ LPVOID CR3APIHookScanner::RedirectionExportFuncAddr(const char* lpExportFuncAddr
 	wpDLLName = ConvertCharToWchar(pDLLName);
 	wpFuncName = ConvertCharToWchar(pFuncName);
 
-	wsRedirectedDLLName = RedirectDLLPath(wpDLLName, pPreHostDLL);
+	wsRedirectedDLLName = RedirectDLLPath(wpDLLName, pBaseDLL, pPreHostDLL);
 	if (0 != wsRedirectedDLLName.size())
 	{
 		pExportDLLAddr = GetModuleHandle(wsRedirectedDLLName.c_str());
@@ -1448,7 +1459,7 @@ LPVOID CR3APIHookScanner::RedirectionExportFuncAddr(const char* lpExportFuncAddr
 
 	//todo：是否可以把用到的都缓存下来
 	AnalyzePEInfo(pExportDLLAddr, &ExportDLLINfo);
-	lpRedirectedExportFuncAddr = GetExportFuncAddrByName(pExportDLLAddr, &ExportDLLINfo, wpFuncName, wsRedirectedDLLName.c_str());
+	lpRedirectedExportFuncAddr = GetExportFuncAddrByName(pExportDLLAddr, &ExportDLLINfo, wpFuncName, pBaseDLL, wsRedirectedDLLName.c_str());
 	FreeConvertedWchar(wpDLLName);
 	FreeConvertedWchar(wpFuncName);
 
