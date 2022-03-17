@@ -185,9 +185,9 @@ private:
 
 	DWORD AlignSize(const DWORD dwSize, const DWORD dwAlign);
 
-	LPVOID GetExportFuncAddrByName(LPVOID pExportDLLBase, PPE_INFO pExportDLLInfo, const wchar_t* pDLLName, const wchar_t* pFuncName, const wchar_t* pPreHostDLL);
+	LPVOID GetExportFuncAddrByName(LPVOID pExportDLLBase, PPE_INFO pExportDLLInfo, const wchar_t* pFuncName, const wchar_t* pPreHostDLL);
 
-	LPVOID GetExportFuncAddrByOrdinal(LPVOID pExportDLLBase, PPE_INFO pExportDLLInfo, const wchar_t* pDLLName, WORD wOrdinal);
+	LPVOID GetExportFuncAddrByOrdinal(LPVOID pExportDLLBase, PPE_INFO pExportDLLInfo, WORD wOrdinal);
 	
 	//»Øµ÷º¯Êý
 	static BOOL CbCollectProcessInfo(PPROCESS_INFO pProcessInfo, PBOOL pBreak);

@@ -199,6 +199,7 @@ BOOL CR3APIHookScanner::EmurateModules(PPROCESS_INFO pProcessInfo, CALLBACK_EMUN
 	while (bNext)
 	{
 		wstring wcsModuleName = ModuleEntry32.szModule;
+		transform(wcsModuleName.begin(), wcsModuleName.end(), wcsModuleName.begin(), tolower);
 		wcsSuffix = wcsModuleName.substr(wcsModuleName.find_last_of('.') + 1);
 		if (0 != wcsSuffix.compare(L"dll"))
 		{
@@ -271,7 +272,7 @@ BOOL CR3APIHookScanner::ScanSingle(PPROCESS_INFO pProcessInfo)
 			//用模拟载入内存后的dll和内存中真实的dll进行比较
 			//这里的InlineHook其实就是EAT Hook，所谓的EAT Hook，就是跳转到函数执行的内部，然后修改了指令。PE从导入表中拿到一个函数的地址
 			//然后跳到这个函数的内部执行
-			//ScanSingleModuleInlineHook2(pModuleInfo, pDllMemBuffer);
+			ScanSingleModuleInlineHook2(pModuleInfo, pDllMemBuffer);
 			//ReleaseDllMemoryBuffer(&pDllMemBuffer);
 		}
 
@@ -526,29 +527,45 @@ BOOL CR3APIHookScanner::FixBaseReloc(LPVOID pMemoryBuffer, const PPE_INFO const 
 				switch (*(pNextRelocOffset) >> 12)
 				{
 				case IMAGE_REL_BASED_HIGHLOW:
+				{
 					printf("");
 					break;
+				}
 				case IMAGE_REL_BASED_HIGH:
+				{
 					printf("");
 					break;
+				}
 				case IMAGE_REL_BASED_HIGHADJ:
+				{
 					printf("");
 					break;
+				}
 				case IMAGE_REL_BASED_LOW:
+				{
 					printf("");
 					break;
+				}
 				case IMAGE_REL_BASED_IA64_IMM64:
+				{
 					printf("");
 					break;
+				}
 				case IMAGE_REL_BASED_DIR64:
-					printf("");
+				{
+  					printf("");
 					break;
+				}
 				case IMAGE_REL_BASED_MIPS_JMPADDR:
+				{
 					printf("");
 					break;
+				}
 				case IMAGE_REL_BASED_ABSOLUTE:
+				{
 					printf("");
 					break;
+				}
 				default:
 					//return (PIMAGE_BASE_RELOCATION)NULL;
 					break;
@@ -556,7 +573,6 @@ BOOL CR3APIHookScanner::FixBaseReloc(LPVOID pMemoryBuffer, const PPE_INFO const 
 					//处理各种type
 				}
 				pNextRelocOffset++;
-
 			}
 			pBaseRelocBlock = (PIMAGE_BASE_RELOCATION)((UINT64)pBaseRelocBlock + pBaseRelocBlock->SizeOfBlock);
 			pNextRelocOffset = (PUSHORT)((UINT64)pBaseRelocBlock + sizeof(IMAGE_BASE_RELOCATION));//指向一个重定位块中的偏移数据处
@@ -592,6 +608,7 @@ BOOL CR3APIHookScanner::BuildImportTable(LPVOID pDllMemoryBuffer, PPE_INFO pPeIn
 		DWORD dwOriginImportTableSize = 0;
 		PE_INFO SimulateDLLInfo = { 0 };
 		PIMAGE_IMPORT_BY_NAME pName = NULL;
+		PIMAGE_IMPORT_BY_NAME pName2 = NULL;
 		PIMAGE_THUNK_DATA pFirstThunk = NULL;
 		PIMAGE_THUNK_DATA pOriginFirstThunk = NULL;
 		PIMAGE_IMPORT_BY_NAME pSimulateName = NULL;
@@ -650,23 +667,35 @@ BOOL CR3APIHookScanner::BuildImportTable(LPVOID pDllMemoryBuffer, PPE_INFO pPeIn
 				{
 					LPVOID ExportAddr = NULL;
 
-					if (pSimulateFirstThunk->u1.Ordinal & IMAGE_ORDINAL_FLAG64)//无名函数的情况，靠Ordinal
-					{
+					if (pSimulateOriginFirstThunk->u1.Ordinal & IMAGE_ORDINAL_FLAG64)//无名函数的情况，靠Ordinal
+					{//pSimulateFirstThunk
 						dwOrdinal = pSimulateFirstThunk->u1.Ordinal & 0xFFFF;
-						ExportAddr = GetExportFuncAddrByOrdinal(lpImportDLLAddr, &ImportDLLInfo, wcsDLLName, dwOrdinal);
+						ExportAddr = GetExportFuncAddrByOrdinal(lpImportDLLAddr, &ImportDLLInfo, dwOrdinal);
 					}
 					else
 					{
 						//拿到导入函数名，根据导入函数名，去查对应的DLL的导出函数地址
 						wchar_t* wcsFuncName = NULL;
 						pName = (PIMAGE_IMPORT_BY_NAME)((BYTE*)pDllMemoryBuffer + pSimulateOriginFirstThunk->u1.AddressOfData);
+						pName2 = (PIMAGE_IMPORT_BY_NAME)((BYTE*)pDllMemoryBuffer + pSimulateFirstThunk->u1.AddressOfData);
+
 						wcsFuncName = ConvertCharToWchar(pName->Name);
 						if (wcscmp(wcsFuncName, L"__C_specific_handler") == 0)
 						{
 							printf("");
 						}
 
-						ExportAddr = GetExportFuncAddrByName(lpImportDLLAddr, &ImportDLLInfo, wcsDLLName, wcsFuncName, wsRedirectedDLLName.c_str());
+						if (_wcsicmp(wcsFuncName, L"ProcessIdToSessionId") == 0)
+						{
+							printf("");
+						}
+
+						if (_wcsicmp(wcsFuncName, L"ProcessIdToSessionIdStub") == 0)
+						{
+							printf("");
+						}
+
+						ExportAddr = GetExportFuncAddrByName(lpImportDLLAddr, &ImportDLLInfo, wcsFuncName, wsRedirectedDLLName.c_str());
 						FreeConvertedWchar(wcsFuncName);
 					}
 
@@ -1016,14 +1045,20 @@ BOOL CR3APIHookScanner::ScanSingleModuleInlineHook2(PMODULE_INFO pModuleInfo, LP
 				pSimulateOriginImportTableVA->OriginalFirstThunk);
 
 			//遍历导入函数
+			int iii = 0;
 			while (pSimulateFirstThunk->u1.Function)
 			{
+				iii++;
 				LPVOID ExportAddr = NULL;
-
-				if (pSimulateFirstThunk->u1.Ordinal & IMAGE_ORDINAL_FLAG64)//无名函数的情况，靠Ordinal
+				LPVOID lpSimDLLBase = NULL;
+				if (576 == iii)
 				{
-					dwOrdinal = pSimulateFirstThunk->u1.Ordinal & 0xFFFF;
-					ExportAddr = GetExportFuncAddrByOrdinal(lpImportDLLAddr, &ImportDLLInfo, wcsDLLName, dwOrdinal);
+					printf("");
+				}
+				if (pSimulateOriginFirstThunk->u1.Ordinal & IMAGE_ORDINAL_FLAG64)//无名函数的情况，靠Ordinal
+				{//pSimulateFirstThunk
+					dwOrdinal = pSimulateOriginFirstThunk->u1.Ordinal & 0xFFFF;
+					ExportAddr = GetExportFuncAddrByOrdinal(lpImportDLLAddr, &ImportDLLInfo, dwOrdinal);
 				}
 				else
 				{
@@ -1035,7 +1070,7 @@ BOOL CR3APIHookScanner::ScanSingleModuleInlineHook2(PMODULE_INFO pModuleInfo, LP
 					{
 						printf("");
 					}
-					ExportAddr = GetExportFuncAddrByName(lpImportDLLAddr, &ImportDLLInfo, wcsDLLName, wcsFuncName, wsRedirectedDLLName.c_str());
+					ExportAddr = GetExportFuncAddrByName(lpImportDLLAddr, &ImportDLLInfo, wcsFuncName, wsRedirectedDLLName.c_str());
 					FreeConvertedWchar(wcsFuncName);
 				}
 
@@ -1044,12 +1079,21 @@ BOOL CR3APIHookScanner::ScanSingleModuleInlineHook2(PMODULE_INFO pModuleInfo, LP
 					if ((UINT64)ExportAddr > (UINT64)p->pDllBaseAddr && (UINT64)ExportAddr < (UINT64)p->pDllBaseAddr + p->dwSizeOfImage)
 					{
 						ImportFuncOffset = (UINT64)ExportAddr - (UINT64)p->pDllBaseAddr;
+						lpSimDLLBase = GetSimCache(p->szModulePath);
 						break;
 					}
 				}
 
+				if (!lpSimDLLBase)
+				{
+					printf("");
+				}
 
-				if (memcmp((BYTE*)pDllMemoryBuffer + ImportFuncOffset, ExportAddr, INLINE_HOOK_LEN) != 0)
+				if (ImportFuncOffset > 1155072)
+				{
+					printf("");
+				}
+				if (memcmp((BYTE*)lpSimDLLBase + ImportFuncOffset, ExportAddr, INLINE_HOOK_LEN) != 0)
 				{
 					printf("IAT Inlie Hook.\n");
 				}
@@ -1108,10 +1152,9 @@ DWORD CR3APIHookScanner::AlignSize(const DWORD dwSize, const DWORD dwAlign)
 	return ((dwSize + dwAlign - 1) / dwAlign * dwAlign);
 }
 
-LPVOID CR3APIHookScanner::GetExportFuncAddrByName(LPVOID pExportDLLBase, PPE_INFO pExportDLLInfo, const wchar_t* pDLLName, const wchar_t* pFuncName, const wchar_t* pPreHostDLL)
+LPVOID CR3APIHookScanner::GetExportFuncAddrByName(LPVOID pExportDLLBase, PPE_INFO pExportDLLInfo, const wchar_t* pFuncName, const wchar_t* pPreHostDLL)
 {
 	//这个pOriginDLLBase是用来查询导出表的DLL，不是需要修复的DLL
-	CHECK_POINTER_NULL(pDLLName, NULL);
 	CHECK_POINTER_NULL(pFuncName, NULL);
 	CHECK_POINTER_NULL(pExportDLLBase, NULL);
 	CHECK_POINTER_NULL(pExportDLLInfo, NULL);
@@ -1161,10 +1204,9 @@ LPVOID CR3APIHookScanner::GetExportFuncAddrByName(LPVOID pExportDLLBase, PPE_INF
 	return lpExportFuncAddr;
 }
 
-LPVOID CR3APIHookScanner::GetExportFuncAddrByOrdinal(LPVOID pExportDLLBase, PPE_INFO pExportDLLInfo, const wchar_t* pDLLName, WORD wOrdinal)
+LPVOID CR3APIHookScanner::GetExportFuncAddrByOrdinal(LPVOID pExportDLLBase, PPE_INFO pExportDLLInfo, WORD wOrdinal)
 {
 	CHECK_POINTER_NULL(pExportDLLBase, NULL);
-	CHECK_POINTER_NULL(pDLLName, NULL);
 	CHECK_POINTER_NULL(pExportDLLInfo, NULL);
 
 	PIMAGE_EXPORT_DIRECTORY pExportTable = NULL;
@@ -1406,7 +1448,7 @@ LPVOID CR3APIHookScanner::RedirectionExportFuncAddr(const char* lpExportFuncAddr
 
 	//todo：是否可以把用到的都缓存下来
 	AnalyzePEInfo(pExportDLLAddr, &ExportDLLINfo);
-	lpRedirectedExportFuncAddr = GetExportFuncAddrByName(pExportDLLAddr, &ExportDLLINfo, wpDLLName, wpFuncName, wsRedirectedDLLName.c_str());
+	lpRedirectedExportFuncAddr = GetExportFuncAddrByName(pExportDLLAddr, &ExportDLLINfo, wpFuncName, wsRedirectedDLLName.c_str());
 	FreeConvertedWchar(wpDLLName);
 	FreeConvertedWchar(wpFuncName);
 
