@@ -200,8 +200,9 @@ private:
 	BOOL ProbeSxSRedirect(std::wstring& path);//, Process& proc, HANDLE actx /*= INVALID_HANDLE_VALUE*/
 	LPVOID RedirectionExportFuncAddr(const char* lpExportFuncAddr, const wchar_t* pPreHostDLL);
 
-	BOOL GetALLModuleSimCache(PPROCESS_INFO pProcessInfo);
-	BOOL ReleaseALLModuleSimCache();
+	BOOL LoadALLModuleSimCache(PPROCESS_INFO pProcessInfo);
+	VOID ReleaseALLModuleSimCache();
+	LPVOID GetSimCache(const wchar_t* p);
 
 private:
 	static vector<PROCESS_INFO*> m_vecProcessInfo;

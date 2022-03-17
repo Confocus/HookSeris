@@ -251,17 +251,17 @@ BOOL CR3APIHookScanner::ScanSingle(PPROCESS_INFO pProcessInfo)
 
 	IsWow64Process(hProcess, &bIsWow64);
 	//缓存下这个exe中所有载入的DLL对应的模拟载入
-	GetALLModuleSimCache(pProcessInfo);
+	LoadALLModuleSimCache(pProcessInfo);
 
 	//遍历这个进程中的所有模块
 	//todo:也要考虑快照的时效性的问题
 	for (auto pModuleInfo : pProcessInfo->m_vecModuleInfo)
 	{
-		//peLoad(Info.FullName, Info.DllBase, Info.DiskImage, Info.SizeOfImage);
 		LPVOID pDllMemBuffer = NULL;
 		AnalyzePEInfo(pModuleInfo->pDllBaseAddr, &m_OriginDLLInfo);
 
-		pDllMemBuffer = SimulateLoadDLL(pModuleInfo);
+		//pDllMemBuffer = SimulateLoadDLL(pModuleInfo);
+		pDllMemBuffer = GetSimCache(pModuleInfo->szModulePath);
 		if (NULL != pDllMemBuffer)
 		{
 			//IAT HOOK扫描，所谓的IAT Hook，是篡改了导入表导入函数的地址
@@ -271,14 +271,14 @@ BOOL CR3APIHookScanner::ScanSingle(PPROCESS_INFO pProcessInfo)
 			//用模拟载入内存后的dll和内存中真实的dll进行比较
 			//这里的InlineHook其实就是EAT Hook，所谓的EAT Hook，就是跳转到函数执行的内部，然后修改了指令。PE从导入表中拿到一个函数的地址
 			//然后跳到这个函数的内部执行
-			ScanSingleModuleInlineHook2(pModuleInfo, pDllMemBuffer);
+			//ScanSingleModuleInlineHook2(pModuleInfo, pDllMemBuffer);
 			//ReleaseDllMemoryBuffer(&pDllMemBuffer);
 		}
 
-		ReleaseALLModuleSimCache();
 	}
 
 	CloseHandle(hProcess);
+	ReleaseALLModuleSimCache();
 
 	return TRUE;
 }
@@ -602,14 +602,14 @@ BOOL CR3APIHookScanner::BuildImportTable(LPVOID pDllMemoryBuffer, PPE_INFO pPeIn
 		//拿到内存中真实的DLL的信息
 		//AnalyzePEInfo(pModuleInfo->pDllBaseAddr, &OriginDLLInfo); //IMAGE_IMPORT_DESCRIPTOR
 
-		if (m_OriginDLLInfo.dwImportDirRVA && m_OriginDLLInfo.dwImportDirSize > 0)
+		if (pPeInfo->dwImportDirRVA && pPeInfo->dwImportDirSize > 0)
 		{
-			dwOriginImportTableSize = m_OriginDLLInfo.dwImportDirSize;
+			dwOriginImportTableSize = pPeInfo->dwImportDirSize;
 			pSimulateOriginImportTableVA = (PIMAGE_IMPORT_DESCRIPTOR)((BYTE*)pDllMemoryBuffer +
-				m_OriginDLLInfo.dwImportDirRVA);
+				pPeInfo->dwImportDirRVA);
 			pOriginImportTableVA = (PIMAGE_IMPORT_DESCRIPTOR)((BYTE*)pDllMemoryBuffer +
-				m_OriginDLLInfo.dwImportDirRVA);
-			dwImportTableCount = m_OriginDLLInfo.dwImportDirSize / sizeof(IMAGE_IMPORT_DESCRIPTOR);//相当于获取DLL的个数
+				pPeInfo->dwImportDirRVA);
+			dwImportTableCount = pPeInfo->dwImportDirSize / sizeof(IMAGE_IMPORT_DESCRIPTOR);//相当于获取DLL的个数
 
 			//遍历要修复的DLL所依赖的DLL
 			for (int i = 0; i < dwImportTableCount && pSimulateOriginImportTableVA->Name; i++)
@@ -665,6 +665,7 @@ BOOL CR3APIHookScanner::BuildImportTable(LPVOID pDllMemoryBuffer, PPE_INFO pPeIn
 						{
 							printf("");
 						}
+
 						ExportAddr = GetExportFuncAddrByName(lpImportDLLAddr, &ImportDLLInfo, wcsDLLName, wcsFuncName, wsRedirectedDLLName.c_str());
 						FreeConvertedWchar(wcsFuncName);
 					}
@@ -1412,21 +1413,21 @@ LPVOID CR3APIHookScanner::RedirectionExportFuncAddr(const char* lpExportFuncAddr
 	return lpRedirectedExportFuncAddr;
 }
 
-BOOL CR3APIHookScanner::GetALLModuleSimCache(PPROCESS_INFO pProcessInfo)
+BOOL CR3APIHookScanner::LoadALLModuleSimCache(PPROCESS_INFO pProcessInfo)
 {
 	CHECK_POINTER_NULL(pProcessInfo, FALSE);
 	//直接把待分析的DLL都缓存下来
 	//todo：这里如何区分32位or64位
 	for (auto pModuleInfo : pProcessInfo->m_vecModuleInfo)
 	{
-		LPVOID lpSimDLLMemBuffer = SimulateLoadDLL(pModuleInfo);
-		m_mapSimDLLCache.insert(std::make_pair(pModuleInfo->szModulePath, lpSimDLLMemBuffer));
+		LPVOID lpSimDLLBuffer = SimulateLoadDLL(pModuleInfo);
+		m_mapSimDLLCache.insert(std::make_pair(pModuleInfo->szModulePath, lpSimDLLBuffer));
 	}
 
 	return TRUE;
 }
 
-BOOL CR3APIHookScanner::ReleaseALLModuleSimCache()
+VOID CR3APIHookScanner::ReleaseALLModuleSimCache()
 {
 	for (auto p : m_mapSimDLLCache) {
 		if (p.second != NULL)
@@ -1435,4 +1436,9 @@ BOOL CR3APIHookScanner::ReleaseALLModuleSimCache()
 			p.second = NULL;
 		}
 	}
+}
+
+LPVOID CR3APIHookScanner::GetSimCache(const wchar_t* p)
+{
+	return m_mapSimDLLCache[p];
 }
