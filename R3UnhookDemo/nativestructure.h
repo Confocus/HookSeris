@@ -800,13 +800,8 @@ namespace blackbone
 	using _ACTCTXW64 = _ACTCTXW_T<uint64_t>;
 	using ACTCTXW_T = _ACTCTXW_T<uintptr_t>;
 }
-//
-//#include "ApiSet.h"
-//
-//// OS specific structures
-//#include "Win7Specific.h"
-//#include "Win8Specific.h"
-//
-//#ifdef XP_BUILD
-//#include "WinXPSpecific.h"
-//#endif
+
+// NTSTATUS RtlGetVersion(
+//[out] PRTL_OSVERSIONINFOW lpVersionInformation
+//);
+typedef NTSTATUS (*PFUNC_RTLGETVERSION)(PRTL_OSVERSIONINFOEXW lpVersionInformation);

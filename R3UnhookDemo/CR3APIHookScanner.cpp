@@ -29,15 +29,29 @@ BOOL CR3APIHookScanner::Init()
 
 	EnableDebugPrivelege();
 
-	//这是Win10的情况
-	InitApiSchema< PAPI_SET_NAMESPACE_ARRAY_10,
-		PAPI_SET_NAMESPACE_ENTRY_10,
-		PAPI_SET_VALUE_ARRAY_10,
-		PAPI_SET_VALUE_ENTRY_10 >();
-	//RedirectDLLPath(L"api-ms-win-core-processthreads-l1-1-0.dll");
-	/*std::wstring str = L"api-ms-win-eventing-controller-l1-1-0.dll";
-	ProbeSxSRedirect(str);
-	RedirectDLLPath(L"api-ms-win-eventing-controller-l1-1-0.dll");*/
+	if (m_OSVerHelper.IsWindows10OrGreater())
+	{
+		InitApiSchema< PAPI_SET_NAMESPACE_ARRAY_10,
+			PAPI_SET_NAMESPACE_ENTRY_10,
+			PAPI_SET_VALUE_ARRAY_10,
+			PAPI_SET_VALUE_ENTRY_10 >();
+	}
+	else if (m_OSVerHelper.IsWindows8Point1OrGreater())
+	{
+		//todo：测试其它版本是否正确，xp是否需要
+		InitApiSchema< PAPI_SET_NAMESPACE_ARRAY,
+			PAPI_SET_NAMESPACE_ENTRY,
+			PAPI_SET_VALUE_ARRAY,
+			PAPI_SET_VALUE_ENTRY >();
+	}
+	else if (m_OSVerHelper.IsWindows7OrGreater())
+	{
+		InitApiSchema< PAPI_SET_NAMESPACE_ARRAY_V2,
+			PAPI_SET_NAMESPACE_ENTRY_V2,
+			PAPI_SET_VALUE_ARRAY_V2,
+			PAPI_SET_VALUE_ENTRY_V2 >();
+	}
+
 	return TRUE;
 }
 
@@ -55,9 +69,9 @@ BOOL CR3APIHookScanner::ScanAllProcesses()
 	for (PPROCESS_INFO pProcessInfo : m_vecProcessInfo)
 	{
 		EmurateModules(pProcessInfo, CbCollectModuleInfo);
-		//todo：考虑进程消失的情况和进程ID变动的情况
+		//todo：考虑进程消失的情况和进程ID变动的情况，将扫描的进程挂起
 		//ScanSingleProcessById(pProcessInfo->dwProcessId);
-		//ScanSingle(pProcessInfo);
+		ScanSingle(pProcessInfo);
 	}
 
 	return TRUE;
@@ -89,11 +103,6 @@ BOOL CR3APIHookScanner::ScanSingleProcessById(DWORD dwProcessId)
 		}
 	}
 
-	return TRUE;
-}
-
-BOOL CR3APIHookScanner::ScanSingleProcessByName(CONST PCHAR pProcessName)
-{
 	return TRUE;
 }
 
@@ -815,12 +824,12 @@ BOOL CR3APIHookScanner::ScanSingleModuleIATHook(PMODULE_INFO pModuleInfo, LPVOID
 						if (!bNoNameFunc)
 						{
 							wchar_t* wpName = ConvertCharToWchar(pName->Name);
-							SaveHookResult(HOOK_TYPE::IATHook, pModuleInfo->szModulePath, wpName, (LPVOID)pFirstThunk->u1.Function);
+							SaveHookResult(HOOK_TYPE::IATHook, pModuleInfo->szModulePath, wpName, (LPVOID)&pFirstThunk->u1.Function, (LPVOID)pSimulateFirstThunk->u1.Function);
 							FreeConvertedWchar(wpName);
 						}
 						else
 						{
-							SaveHookResult(HOOK_TYPE::IATHook, pModuleInfo->szModulePath, L"No Name", (LPVOID)pFirstThunk->u1.Function);
+							SaveHookResult(HOOK_TYPE::IATHook, pModuleInfo->szModulePath, L"No Name", (LPVOID)&pFirstThunk->u1.Function, (LPVOID)pSimulateFirstThunk->u1.Function);
 						}
 					}
 
@@ -877,7 +886,7 @@ BOOL CR3APIHookScanner::ScanSingleModuleEATHook(PMODULE_INFO pModuleInfo, LPVOID
 		{
 			if (pSimulateExportFuncAddr[i] != pExportFuncAddr[i])
 			{
-				SaveHookResult(HOOK_TYPE::EATHook, pModuleInfo->szModulePath, L"No Name", (LPVOID)pExportFuncAddr[i]);
+				SaveHookResult(HOOK_TYPE::EATHook, pModuleInfo->szModulePath, L"No Name", (LPVOID)pExportFuncAddr[i], (LPVOID)pSimulateExportFuncAddr[i]);
 				printf("EAT Hook found.\n");
 			}
 		}
@@ -909,7 +918,7 @@ BOOL CR3APIHookScanner::ScanSingleModuleEATHook(PMODULE_INFO pModuleInfo, LPVOID
 			if (pSimulateExportFuncAddr[i] != pExportFuncAddr[i])
 			{
 				wchar_t* wpName = ConvertCharToWchar(pName);
-				SaveHookResult(HOOK_TYPE::EATHook, pModuleInfo->szModulePath, wpName, (LPVOID)pExportFuncAddr[wOrdinal]);
+				SaveHookResult(HOOK_TYPE::EATHook, pModuleInfo->szModulePath, wpName, (LPVOID)pExportFuncAddr[wOrdinal], (LPVOID)pSimulateExportFuncAddr[i]);
 				FreeConvertedWchar(wpName);
 				
 				printf("EAT Hook found.\n");
@@ -965,7 +974,7 @@ BOOL CR3APIHookScanner::ScanSingleModuleInlineHook(PMODULE_INFO pModuleInfo, LPV
 			if (memcmp(pSimulateFuncEntry, pOriginFuncEntry, INLINE_HOOK_LEN) != 0)
 			{
 				wchar_t* wpName = ConvertCharToWchar(pName);
-				SaveHookResult(HOOK_TYPE::InlineHook, pModuleInfo->szModulePath, wpName, (LPVOID)pExportFuncAddr[wOrdinal]);
+				SaveHookResult(HOOK_TYPE::InlineHook, pModuleInfo->szModulePath, wpName, pOriginFuncEntry, pSimulateFuncEntry);
 				FreeConvertedWchar(wpName);
 				printf("INLINE Hook found.\n");
 			}
@@ -1503,10 +1512,11 @@ LPVOID CR3APIHookScanner::GetSimCache(const wchar_t* p)
 	return m_mapSimDLLCache[p];
 }
 
-VOID CR3APIHookScanner::SaveHookResult(HOOK_TYPE type, const wchar_t* pModulePath, const wchar_t* pFunc, LPVOID pHookPos)
+VOID CR3APIHookScanner::SaveHookResult(HOOK_TYPE type, const wchar_t* pModulePath, const wchar_t* pFunc, LPVOID pHookedAddr, LPVOID lpRecoverAddr)
 {
 	HOOK_RESULT HookResult = { 0 };
-	HookResult.lpHookPos = pHookPos;
+	HookResult.lpHookedAddr = pHookedAddr;
+	HookResult.lpRecoverAddr = lpRecoverAddr;
 	HookResult.bIsHooked = TRUE;
 	HookResult.type = HOOK_TYPE::IATHook;
 	
@@ -1526,4 +1536,55 @@ VOID CR3APIHookScanner::SaveHookResult(HOOK_TYPE type, const wchar_t* pModulePat
 	m_vecHookRes.push_back(HookResult);
 
 	return;
+}
+
+BOOL CR3APIHookScanner::UnHook()
+{
+	for (auto p : m_vecHookRes)
+	{
+		DWORD dwOldAttr = 0;
+
+		switch (p.type)
+		{
+		case HOOK_TYPE::IATHook:
+		{
+			if (0)
+			{
+
+			}
+			else
+			{
+				//恢复导入表中的VA
+				VirtualProtectEx(m_pCurProcess, p.lpHookedAddr, 8, PAGE_EXECUTE_READWRITE, &dwOldAttr);
+				WriteProcessMemory(m_pCurProcess, p.lpHookedAddr, p.lpRecoverAddr, 4, NULL);
+				VirtualProtectEx(m_pCurProcess, p.lpHookedAddr, 8, dwOldAttr, NULL);
+			}
+			
+			break;
+		}
+		case HOOK_TYPE::EATHook:
+		{
+			//恢复导出表中的偏移
+			VirtualProtectEx(m_pCurProcess, p.lpHookedAddr, 4, PAGE_EXECUTE_READWRITE, &dwOldAttr);
+			WriteProcessMemory(m_pCurProcess, p.lpHookedAddr, p.lpRecoverAddr, 4, NULL);
+			VirtualProtectEx(m_pCurProcess, p.lpHookedAddr, 4, dwOldAttr, NULL);
+			break;
+		}
+		case HOOK_TYPE::InlineHook:
+		{
+
+			//todo：如何修复InlineHook
+			break;
+		}
+		default:
+			break;
+		}
+	}
+	return TRUE;
+}
+
+BOOL CR3APIHookScanner::UnHook(DWORD dwProcessId, LPVOID lpModule, LPVOID lpFunc)
+{
+
+	return TRUE;
 }

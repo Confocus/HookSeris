@@ -1,5 +1,7 @@
 #pragma once
 #include "stdafx.h"
+#include "COSVersionHelper.h"
+
 #define MAX_PROCESS_LEN		520
 #define MAX_MODULE_LEN		520
 #define MAX_MODULE_PATH		1024
@@ -49,7 +51,8 @@ typedef struct _HOOK_RESULT
 	HOOK_TYPE type;
 	const wchar_t szModule[MAX_MODULE_PATH];
 	const wchar_t szFuncName[MAX_FUNCTION_NAME];
-	LPVOID lpHookPos;
+	LPVOID lpHookedAddr;
+	LPVOID lpRecoverAddr;
 }HOOK_RESULT, *PHOOK_RESULT;
 
 //todo：改成类
@@ -98,8 +101,8 @@ public:
 	CR3APIHookScanner();
 	~CR3APIHookScanner();
 	
-	//todo:实现单例、禁止拷贝或拷贝上的深拷贝
-	//todo:实现多线程安全
+	//consider:实现单例或拷贝上的深拷贝
+	//consider:实现多线程安全。暂时没有使用全局的东西。
 
 	/**
 	* 扫描全部进程是否挂钩
@@ -111,13 +114,16 @@ public:
 	/**
 	* 扫描指定Id的进程是否挂钩
 	*
-	* @param szPath : 待扫描进程的进程Id
+	* @param dwProcessId : 待扫描进程的进程Id
 	* @return
 	*/
 	BOOL ScanSingleProcessById(DWORD dwProcessId);
-	BOOL ScanSingleProcessByName(CONST PCHAR pProcessName);
 
 private:
+	//禁止拷贝和赋值
+	CR3APIHookScanner(const CR3APIHookScanner&); 
+	CR3APIHookScanner& operator = (const CR3APIHookScanner&);
+
 	BOOL Init();
 	BOOL Release();
 	BOOL Clear();
@@ -125,6 +131,7 @@ private:
 	BOOL EmurateModules(PPROCESS_INFO pProcessInfo, CALLBACK_EMUNMODULE pCallbackFunc);
 	BOOL ScanSingle(PPROCESS_INFO pProcessInfo);
 
+	//todo：兼容其它系统
 	template<typename PApiSetMap, typename PApiSetEntry, typename PHostArray, typename PHostEntry>
 	BOOL InitApiSchema();
 	/**
@@ -133,6 +140,7 @@ private:
 	* @param pModuleInfo : 指向DLL信息相关数据
 	* @return
 	*/
+
 	LPVOID SimulateLoadDLL(PMODULE_INFO pModuleInfo);
 
 	VOID FreeSimulateDLL(PMODULE_INFO pModuleInfo);
@@ -213,15 +221,21 @@ private:
 	VOID ReleaseALLModuleSimCache();
 	LPVOID GetSimCache(const wchar_t* p);
 
-	VOID SaveHookResult(HOOK_TYPE type, const wchar_t* pModulePath, const wchar_t* pFunc, LPVOID pHookPos);
+	VOID SaveHookResult(HOOK_TYPE type, const wchar_t* pModulePath, const wchar_t* pFunc, LPVOID pHookedAddr, LPVOID lpRecoverAddr);
+
+	BOOL UnHook();
+
+	//对指定进程的指定模块的指定函数进行UnHook
+	BOOL UnHook(DWORD dwProcessId, LPVOID lpModule, LPVOID lpFunc);
 
 private:
+	COSVersionHelper m_OSVerHelper;
+	//todo：加锁
 	static vector<PROCESS_INFO*> m_vecProcessInfo;
 
 	//当前正在被扫描的那个Process
 	PROCESS_INFO* m_pCurProcess;
 	BOOL m_bIsWow64;
-	static int m_test;
 
 	//内存中实际的某个DLL的PE信息
 	PE_INFO m_OriginDLLInfo;
