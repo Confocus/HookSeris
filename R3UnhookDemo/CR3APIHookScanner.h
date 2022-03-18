@@ -1,9 +1,10 @@
 #pragma once
 #include "stdafx.h"
-#define MAX_PROCESS_LEN	520
-#define MAX_MODULE_LEN	520
-#define MAX_MODULE_PATH	1024
-#define INLINE_HOOK_LEN	0x10
+#define MAX_PROCESS_LEN		520
+#define MAX_MODULE_LEN		520
+#define MAX_MODULE_PATH		1024
+#define INLINE_HOOK_LEN		0x10
+#define MAX_FUNCTION_NAME	0x50
 
 #include <vector>
 #include <unordered_map>
@@ -33,6 +34,23 @@ typedef struct _MODULE_INFO
 	WCHAR szModuleName[MAX_MODULE_LEN];
 	WCHAR szModulePath[MAX_MODULE_PATH];
 }MODULE_INFO, * PMODULE_INFO;
+
+enum  class HOOK_TYPE
+{
+	IATHook = 0,
+	EATHook,
+	InlineHook,
+};
+
+typedef struct _HOOK_RESULT
+{
+	BOOL bIsHooked;
+	DWORD dwHookId;
+	HOOK_TYPE type;
+	const wchar_t szModule[MAX_MODULE_PATH];
+	const wchar_t szFuncName[MAX_FUNCTION_NAME];
+	LPVOID lpHookPos;
+}HOOK_RESULT, *PHOOK_RESULT;
 
 //todo：改成类
 //保存进程相关信息
@@ -64,15 +82,6 @@ typedef struct _PROCESS_INFO
 		}
 	}
 }PROCESS_INFO, * PPROCESS_INFO;
-
-//class PROCESS_INFO
-//{
-//public:
-//	DWORD dwProcessId;
-//	WCHAR szProcessName[MAX_PROCESS_LEN];
-//};
-//
-//typedef PROCESS_INFO* PPROCESS_INFO;
 
 //遍历过程中的回调函数
 typedef BOOL (WINAPI* CALLBACK_EMUNPROCESS)(
@@ -204,6 +213,8 @@ private:
 	VOID ReleaseALLModuleSimCache();
 	LPVOID GetSimCache(const wchar_t* p);
 
+	VOID SaveHookResult(HOOK_TYPE type, const wchar_t* pModulePath, const wchar_t* pFunc, LPVOID pHookPos);
+
 private:
 	static vector<PROCESS_INFO*> m_vecProcessInfo;
 
@@ -224,4 +235,5 @@ private:
 
 	//缓存模拟载入的DLL镜像
 	std::unordered_map<std::wstring, LPVOID> m_mapSimDLLCache;
+	std::vector<HOOK_RESULT> m_vecHookRes;
 };

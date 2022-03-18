@@ -260,6 +260,7 @@ BOOL CR3APIHookScanner::ScanSingle(PPROCESS_INFO pProcessInfo)
 	for (auto pModuleInfo : pProcessInfo->m_vecModuleInfo)
 	{
 		LPVOID pDllMemBuffer = NULL;
+		HOOK_RESULT HookResult = { 0 };
 		AnalyzePEInfo(pModuleInfo->pDllBaseAddr, &m_OriginDLLInfo);
 
 		//pDllMemBuffer = SimulateLoadDLL(pModuleInfo);
@@ -273,8 +274,8 @@ BOOL CR3APIHookScanner::ScanSingle(PPROCESS_INFO pProcessInfo)
 			//用模拟载入内存后的dll和内存中真实的dll进行比较
 			//这里的InlineHook其实就是EAT Hook，所谓的EAT Hook，就是跳转到函数执行的内部，然后修改了指令。PE从导入表中拿到一个函数的地址
 			//然后跳到这个函数的内部执行
+			//ScanSingleModuleInlineHook(pModuleInfo, pDllMemBuffer);
 			ScanSingleModuleInlineHook2(pModuleInfo, pDllMemBuffer);
-			//ReleaseDllMemoryBuffer(&pDllMemBuffer);
 		}
 
 	}
@@ -320,27 +321,19 @@ BOOL CR3APIHookScanner::InitApiSchema()
 
 		m_mapApiSchema.emplace(dllName, std::move(vhosts));
 	}
-	//api-ms-win-stateseparation-helpers-l1-1
-	//auto p = m_mapApiSchema[L"api-ms-win-core-processthreads-l1-1-0"];
-	//auto p = m_mapApiSchema[L"api-ms-win-stateseparation-helpers-l1-1"];
+	
 	return TRUE;
 }
 
 LPVOID CR3APIHookScanner::SimulateLoadDLL(PMODULE_INFO pModuleInfo)
 {
-	if (NULL == pModuleInfo)
-	{
-		return NULL;
-	}
-	printf("Load DLL path:%ls\n", pModuleInfo->szModulePath);
+	CHECK_POINTER_NULL(pModuleInfo, NULL);
 
 	HANDLE hFile = NULL;
-	DWORD dwNumberOfBytesRead = 0;
+	DWORD dwBytesRead = 0;
 	const DWORD dwBufferSize = pModuleInfo->dwSizeOfImage;
-	//DLL磁盘上的样子
-	LPVOID pDllImageBuffer = NULL;
-	//DLL模拟载入内存中的样子
-	LPVOID pDllMemoryBuffer = NULL;
+	LPVOID pDllImageBuffer = NULL;//DLL磁盘上的样子
+	LPVOID pDllMemoryBuffer = NULL;//DLL模拟载入内存中的样子
 	PE_INFO PEImageInfo = { 0 };
 
 	do 
@@ -359,7 +352,7 @@ LPVOID CR3APIHookScanner::SimulateLoadDLL(PMODULE_INFO pModuleInfo)
 		{
 			ZeroMemory(pDllMemoryBuffer, dwBufferSize);
 			//将DLL的二进制文件读入内存
-			if (!ReadFile(hFile, pDllImageBuffer, dwBufferSize, &dwNumberOfBytesRead, NULL))
+			if (!ReadFile(hFile, pDllImageBuffer, dwBufferSize, &dwBytesRead, NULL))
 			{
 				break;
 			}
@@ -383,8 +376,9 @@ LPVOID CR3APIHookScanner::SimulateLoadDLL(PMODULE_INFO pModuleInfo)
 			}
 		}
 
-		FixBaseReloc(pDllMemoryBuffer, &PEImageInfo, pModuleInfo->pDllBaseAddr);
-		BuildImportTable(pDllMemoryBuffer, &PEImageInfo, pModuleInfo);
+		FixBaseReloc(pDllMemoryBuffer, &PEImageInfo, pModuleInfo->pDllBaseAddr);//修复重定位表
+		BuildImportTable(pDllMemoryBuffer, &PEImageInfo, pModuleInfo);//修复导入表
+
 	} while (FALSE);
 
 	if (pDllImageBuffer)
@@ -764,7 +758,6 @@ BOOL CR3APIHookScanner::ScanSingleModuleIATHook(PMODULE_INFO pModuleInfo, LPVOID
 		PIMAGE_IMPORT_DESCRIPTOR pOriginImportTableVA = NULL;
 		PIMAGE_IMPORT_DESCRIPTOR pSimulateOriginImportTableVA = NULL;
 		DWORD dwOriginImportTableSize = 0;
-		//PE_INFO OriginDLLInfo = { 0 };
 		PE_INFO SimulateDLLInfo = { 0 };
 		PIMAGE_IMPORT_BY_NAME pName = NULL;
 		PIMAGE_THUNK_DATA pFirstThunk = NULL;
@@ -799,9 +792,11 @@ BOOL CR3APIHookScanner::ScanSingleModuleIATHook(PMODULE_INFO pModuleInfo, LPVOID
 				while (pFirstThunk->u1.Function)
 				{
 					static int j = 1;
+					BOOL bNoNameFunc = FALSE;
 					if (pOriginFirstThunk->u1.Ordinal & IMAGE_ORDINAL_FLAG64)//无名函数的情况，靠Ordinal
 					{
 						dwOrdinal = pOriginFirstThunk->u1.Ordinal & 0xFFFF;
+						bNoNameFunc = TRUE;
 					}
 					else
 					{
@@ -817,7 +812,16 @@ BOOL CR3APIHookScanner::ScanSingleModuleIATHook(PMODULE_INFO pModuleInfo, LPVOID
 
 					if (pFirstThunk->u1.Function != pSimulateFirstThunk->u1.Function)
 					{
-						printf("IAT Hook found!\n");
+						if (!bNoNameFunc)
+						{
+							wchar_t* wpName = ConvertCharToWchar(pName->Name);
+							SaveHookResult(HOOK_TYPE::IATHook, pModuleInfo->szModulePath, wpName, (LPVOID)pFirstThunk->u1.Function);
+							FreeConvertedWchar(wpName);
+						}
+						else
+						{
+							SaveHookResult(HOOK_TYPE::IATHook, pModuleInfo->szModulePath, L"No Name", (LPVOID)pFirstThunk->u1.Function);
+						}
 					}
 
 					pFirstThunk++;
@@ -873,6 +877,7 @@ BOOL CR3APIHookScanner::ScanSingleModuleEATHook(PMODULE_INFO pModuleInfo, LPVOID
 		{
 			if (pSimulateExportFuncAddr[i] != pExportFuncAddr[i])
 			{
+				SaveHookResult(HOOK_TYPE::EATHook, pModuleInfo->szModulePath, L"No Name", (LPVOID)pExportFuncAddr[i]);
 				printf("EAT Hook found.\n");
 			}
 		}
@@ -891,11 +896,7 @@ BOOL CR3APIHookScanner::ScanSingleModuleEATHook(PMODULE_INFO pModuleInfo, LPVOID
 			//if ((((DWORD*)Eat)[NameOrd[i]] != ((DWORD*)OriEat)[NameOrd[i]]) && (OriApiAddress != ApiAddress))
 			//这里必须要求是偏移和实际地址都相等。前者得到的是偏移。
 			//
-			//pfnUnmarshallRoutines
-			if (strcmp("pfnUnmarshallRoutines", pName) == 0)
-			{
-				printf("");
-			}
+			
 			//todo：未解决redirection的问题
 			printf("ori name:%s		", pName);
 			//printf("0x%016I64X\n", pFunc);
@@ -907,6 +908,10 @@ BOOL CR3APIHookScanner::ScanSingleModuleEATHook(PMODULE_INFO pModuleInfo, LPVOID
 
 			if (pSimulateExportFuncAddr[i] != pExportFuncAddr[i])
 			{
+				wchar_t* wpName = ConvertCharToWchar(pName);
+				SaveHookResult(HOOK_TYPE::EATHook, pModuleInfo->szModulePath, wpName, (LPVOID)pExportFuncAddr[wOrdinal]);
+				FreeConvertedWchar(wpName);
+				
 				printf("EAT Hook found.\n");
 			}
 			printf("");
@@ -946,6 +951,7 @@ BOOL CR3APIHookScanner::ScanSingleModuleInlineHook(PMODULE_INFO pModuleInfo, LPV
 		DWORD* pExportFuncName = (DWORD*)((BYTE*)pModuleInfo->pDllBaseAddr + pExportTable->AddressOfNames);
 		WORD* pOrdinalAddr = (WORD*)((BYTE*)pModuleInfo->pDllBaseAddr + pExportTable->AddressOfNameOrdinals);
 
+		//todo：No Name
 		for (int i = 0; i < pExportTable->NumberOfNames; i++)
 		{
 			WORD wOrdinal = pOrdinalAddr[i];
@@ -958,6 +964,9 @@ BOOL CR3APIHookScanner::ScanSingleModuleInlineHook(PMODULE_INFO pModuleInfo, LPV
 			//todo：这里的检测长度需要更合理一些
 			if (memcmp(pSimulateFuncEntry, pOriginFuncEntry, INLINE_HOOK_LEN) != 0)
 			{
+				wchar_t* wpName = ConvertCharToWchar(pName);
+				SaveHookResult(HOOK_TYPE::InlineHook, pModuleInfo->szModulePath, wpName, (LPVOID)pExportFuncAddr[wOrdinal]);
+				FreeConvertedWchar(wpName);
 				printf("INLINE Hook found.\n");
 			}
 			
@@ -1064,10 +1073,6 @@ BOOL CR3APIHookScanner::ScanSingleModuleInlineHook2(PMODULE_INFO pModuleInfo, LP
 					wchar_t* wcsFuncName = NULL;
 					pName = (PIMAGE_IMPORT_BY_NAME)((BYTE*)pDllMemoryBuffer + pSimulateOriginFirstThunk->u1.AddressOfData);
 					wcsFuncName = ConvertCharToWchar(pName->Name);
-					if (wcscmp(wcsFuncName, L"__C_specific_handler") == 0)
-					{
-						printf("");
-					}
 					ExportAddr = GetExportFuncAddrByName(lpImportDLLAddr, &ImportDLLInfo, wcsFuncName, pModuleInfo->szModuleName, wsRedirectedDLLName.c_str());
 					FreeConvertedWchar(wcsFuncName);
 				}
@@ -1091,6 +1096,8 @@ BOOL CR3APIHookScanner::ScanSingleModuleInlineHook2(PMODULE_INFO pModuleInfo, LP
 				{
 					printf("");
 				}
+
+				//todo：待解决NlsMbCodePageTag这类函数不再code节的问题
 				if (memcmp((BYTE*)lpSimDLLBase + ImportFuncOffset, ExportAddr, INLINE_HOOK_LEN) != 0)
 				{
 					printf("IAT Inlie Hook.\n");
@@ -1266,7 +1273,7 @@ wchar_t* CR3APIHookScanner::ConvertCharToWchar(const char* p)
 	wp = (wchar_t*)malloc(len * sizeof(wchar_t));
 	if (!wp)
 	{
-		return FALSE;
+		return NULL;
 	}
 
 	mbstowcs_s(&nConverted, wp, len, p, _TRUNCATE);
@@ -1494,4 +1501,29 @@ VOID CR3APIHookScanner::ReleaseALLModuleSimCache()
 LPVOID CR3APIHookScanner::GetSimCache(const wchar_t* p)
 {
 	return m_mapSimDLLCache[p];
+}
+
+VOID CR3APIHookScanner::SaveHookResult(HOOK_TYPE type, const wchar_t* pModulePath, const wchar_t* pFunc, LPVOID pHookPos)
+{
+	HOOK_RESULT HookResult = { 0 };
+	HookResult.lpHookPos = pHookPos;
+	HookResult.bIsHooked = TRUE;
+	HookResult.type = HOOK_TYPE::IATHook;
+	
+	memset((void*)HookResult.szModule, 0, sizeof(wchar_t) * MAX_MODULE_PATH);
+	if (pModulePath)
+	{
+		wcscpy_s((wchar_t*)HookResult.szModule, min(wcslen(pModulePath), MAX_MODULE_PATH), (wchar_t*)pModulePath);
+	}
+
+	memset((void*)HookResult.szFuncName, 0, sizeof(wchar_t) * MAX_FUNCTION_NAME);
+	if (pFunc)
+	{
+		wcscpy_s((wchar_t*)HookResult.szFuncName, min(wcslen(pFunc), MAX_FUNCTION_NAME), (wchar_t*)pFunc);
+
+	}
+
+	m_vecHookRes.push_back(HookResult);
+
+	return;
 }
