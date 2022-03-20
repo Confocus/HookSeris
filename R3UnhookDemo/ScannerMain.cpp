@@ -5,7 +5,7 @@ void main()
 {
 	CR3APIHookScanner R3APIHookScanner;
 	//R3APIHookScanner.ScanAllProcesses();
-	R3APIHookScanner.ScanSingleProcessById(16324);
+	R3APIHookScanner.ScanProcessById(19964);
 	getchar();
 	return;
 }

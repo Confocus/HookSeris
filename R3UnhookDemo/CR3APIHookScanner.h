@@ -1,10 +1,11 @@
 #pragma once
 #include "stdafx.h"
 #include "COSVersionHelper.h"
+#include <TlHelp32.h>
 
 #define MAX_PROCESS_LEN		520
-#define MAX_MODULE_LEN		520
-#define MAX_MODULE_PATH		1024
+#define MAX_MODULE_NAME_LEN		520
+#define MAX_MODULE_PATH_LEN		1024
 #define INLINE_HOOK_LEN		0x10
 #define MAX_FUNCTION_NAME	0x50
 
@@ -33,8 +34,8 @@ typedef struct _MODULE_INFO
 {
 	BYTE* pDllBaseAddr;
 	DWORD dwSizeOfImage;
-	WCHAR szModuleName[MAX_MODULE_LEN];
-	WCHAR szModulePath[MAX_MODULE_PATH];
+	WCHAR szModuleName[MAX_MODULE_NAME_LEN];
+	WCHAR szModulePath[MAX_MODULE_PATH_LEN];
 }MODULE_INFO, * PMODULE_INFO;
 
 enum  class HOOK_TYPE
@@ -49,13 +50,12 @@ typedef struct _HOOK_RESULT
 	BOOL bIsHooked;
 	DWORD dwHookId;
 	HOOK_TYPE type;
-	const wchar_t szModule[MAX_MODULE_PATH];
+	const wchar_t szModule[MAX_MODULE_PATH_LEN];
 	const wchar_t szFuncName[MAX_FUNCTION_NAME];
 	LPVOID lpHookedAddr;
 	LPVOID lpRecoverAddr;
 }HOOK_RESULT, *PHOOK_RESULT;
 
-//todo：改成类
 //保存进程相关信息
 typedef struct _PROCESS_INFO
 {
@@ -71,7 +71,6 @@ typedef struct _PROCESS_INFO
 
 	~_PROCESS_INFO()
 	{
-		printf("Deconstruct _PROCESS_INFO.\n");
 		if (m_vecModuleInfo.size() > 0)
 		{
 			for (auto pMoudleInfo : m_vecModuleInfo)
@@ -84,6 +83,7 @@ typedef struct _PROCESS_INFO
 			}
 		}
 	}
+
 }PROCESS_INFO, * PPROCESS_INFO;
 
 //遍历过程中的回调函数
@@ -117,40 +117,94 @@ public:
 	* @param dwProcessId : 待扫描进程的进程Id
 	* @return
 	*/
-	BOOL ScanSingleProcessById(DWORD dwProcessId);
+	BOOL ScanProcessById(DWORD dwProcessId);
 
 private:
-	//禁止拷贝和赋值
+	/**
+	* 禁止拷贝和赋值
+	*/
 	CR3APIHookScanner(const CR3APIHookScanner&); 
 	CR3APIHookScanner& operator = (const CR3APIHookScanner&);
 
 	BOOL Init();
 	BOOL Release();
+
+	/**
+	* 清空进程列表
+	*/
 	BOOL Clear();
+
+	/**
+	* 遍历当前所有进程
+	* 
+	* @param pCallbackFunc 遍历时调用的回调函数
+	*/
 	BOOL EmurateProcesses(CALLBACK_EMUNPROCESS pCallbackFunc);
-	BOOL EmurateModules(PPROCESS_INFO pProcessInfo, CALLBACK_EMUNMODULE pCallbackFunc);
-	BOOL ScanSingle(PPROCESS_INFO pProcessInfo);
+	BOOL GetProcessesSnapshot(CALLBACK_EMUNPROCESS pCallbackFunc);
+
+	/**
+	* 遍历当前进程中的所有模块
+	*
+	* @param pProcessInfo 进程信息
+	*/
+	BOOL EmurateModules(PPROCESS_INFO pProcessInfo);
+
+	BOOL GetModulesSnapshot(DWORD dwFlags, PPROCESS_INFO pProcessInfo, CALLBACK_EMUNMODULE pCallbackFunc);
+
+	/**
+	* 遍历当前进程中的所有模块
+	*
+	* @param pProcessInfo 进程信息
+	* @param pCallbackFunc 遍历时调用的回调函数
+	*/
+	BOOL ScanSingleProcess(PPROCESS_INFO pProcessInfo);
+
+	/**
+	* 保存必要的Module Info数据
+	*/
+	VOID SaveModuleInfo(PMODULE_INFO pModuleInfo, MODULEENTRY32& ModuleEntry32);
 
 	//todo：兼容其它系统
 	template<typename PApiSetMap, typename PApiSetEntry, typename PHostArray, typename PHostEntry>
 	BOOL InitApiSchema();
+
+	/**
+	* 保存当前正在扫描的那个进程的进程信息
+	*/
+	BOOL SetScanedProcess(PPROCESS_INFO pProcessInfo);
+	PPROCESS_INFO GetScannedProcess();
+
 	/**
 	* 模拟DLL文件载入内存后的样子
 	*
 	* @param pModuleInfo : 指向DLL信息相关数据
 	* @return
 	*/
-
 	LPVOID SimulateLoadDLL(PMODULE_INFO pModuleInfo);
 
-	VOID FreeSimulateDLL(PMODULE_INFO pModuleInfo);
+	/**
+	* 释放模拟载入的DLL
+	*
+	* @param ppDllMemoryBuffer : 保存待释放的地址的指针
+	* @return
+	*/
+	VOID FreeSimulateDLL(LPVOID* ppDllMemoryBuffer);
 
-	VOID ReleaseDllMemoryBuffer(LPVOID* ppDllMemoryBuffer);
+	/**
+	* 解析PE格式
+	*
+	* @param pBuffer : 内存
+	* @param pPeInfo : 保存PE信息的地址
+	* @return
+	*/
 	BOOL AnalyzePEInfo(LPVOID pBuffer, PPE_INFO pPeInfo);
 
 	/**
-	* 根据Dll实际加载到的地址，修复Dll映像的地址
+	* 修复模拟载入的DLL的重定向数据的内容
 	*
+	* @param pBuffer:模拟载入DLL的地址
+	* @param pPeInfo:DLL镜像的PE结构信息
+	* @param lpDLLBase:DLL在内存中真实地址
 	* @return
 	*/
 	BOOL FixBaseReloc(LPVOID pBuffer, PPE_INFO pPeInfo, LPVOID lpDLLBase);
@@ -158,6 +212,9 @@ private:
 	/**
 	* 构建在内存中模拟的DLL的导入表
 	*
+	* @param pBuffer:模拟载入DLL的地址
+	* @param pPeInfo:DLL镜像的PE结构信息
+	* @param pModuleInfo:存储DLL信息的结构体
 	* @return
 	*/
 	BOOL BuildImportTable(LPVOID pBuffer, PPE_INFO pPeInfo, PMODULE_INFO pModuleInfo);
@@ -209,6 +266,7 @@ private:
 	//回调函数
 	static BOOL CbCollectProcessInfo(PPROCESS_INFO pProcessInfo, PBOOL pBreak);
 	static BOOL CbCollectModuleInfo(PPROCESS_INFO pProcessInfo, PMODULE_INFO pModuleInfo);
+	static BOOL CbRemoveWow64ModuleInfo(PPROCESS_INFO pProcessInfo, PMODULE_INFO pModuleInfo);
 
 	wchar_t* ConvertCharToWchar(const char* p);
 	VOID FreeConvertedWchar(wchar_t* &p);
@@ -219,7 +277,7 @@ private:
 
 	BOOL LoadALLModuleSimCache(PPROCESS_INFO pProcessInfo);
 	VOID ReleaseALLModuleSimCache();
-	LPVOID GetSimCache(const wchar_t* p);
+	LPVOID GetModuleSimCache(const wchar_t* p);
 
 	VOID SaveHookResult(HOOK_TYPE type, const wchar_t* pModulePath, const wchar_t* pFunc, LPVOID pHookedAddr, LPVOID lpRecoverAddr);
 
@@ -234,7 +292,7 @@ private:
 	static vector<PROCESS_INFO*> m_vecProcessInfo;
 
 	//当前正在被扫描的那个Process
-	PROCESS_INFO* m_pCurProcess;
+	PROCESS_INFO* m_pScannedProcess;
 	BOOL m_bIsWow64;
 
 	//内存中实际的某个DLL的PE信息
