@@ -804,4 +804,4 @@ namespace blackbone
 // NTSTATUS RtlGetVersion(
 //[out] PRTL_OSVERSIONINFOW lpVersionInformation
 //);
-typedef NTSTATUS (*PFUNC_RTLGETVERSION)(PRTL_OSVERSIONINFOEXW lpVersionInformation);
+typedef NTSTATUS (__stdcall *PFUNC_RTLGETVERSION)(PRTL_OSVERSIONINFOEXW lpVersionInformation);

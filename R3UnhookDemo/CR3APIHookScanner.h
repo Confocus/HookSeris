@@ -15,9 +15,11 @@
 using namespace std;
 
 //存储用得到的关键PE信息
-typedef struct _PE_INFO {
+//todo：编译成x64时还有些问题
+typedef struct _PE_INFO{
 	WORD wOptionalHeaderMagic;
-	PIMAGE_NT_HEADERS pPeHeader;
+	PIMAGE_NT_HEADERS32 pPe32Header;
+	PIMAGE_NT_HEADERS64 pPe64Header;
 	PIMAGE_SECTION_HEADER szSectionHeader;
 	DWORD dwExportDirRVA;
 	DWORD dwExportDirSize;
@@ -28,11 +30,29 @@ typedef struct _PE_INFO {
 	DWORD dwSectionCnt;
 	DWORD dwSectionAlign;
 	DWORD dwFileAlign;
-}PE_INFO, * PPE_INFO;
+}PE_INFO, *PPE_INFO;
 
 typedef struct _MODULE_INFO
 {
+	_MODULE_INFO():
+		pDllBaseAddr(NULL),
+		pDllWow64BaseAddr(NULL),
+		dwSizeOfImage(0)
+	{
+
+	}
+
+	~_MODULE_INFO()
+	{
+		if (pDllWow64BaseAddr)
+		{
+			delete[] pDllWow64BaseAddr;
+			pDllWow64BaseAddr = NULL;
+		}
+	}
+
 	BYTE* pDllBaseAddr;
+	BYTE* pDllWow64BaseAddr;
 	DWORD dwSizeOfImage;
 	WCHAR szModuleName[MAX_MODULE_NAME_LEN];
 	WCHAR szModulePath[MAX_MODULE_PATH_LEN];
@@ -59,18 +79,26 @@ typedef struct _HOOK_RESULT
 //保存进程相关信息
 typedef struct _PROCESS_INFO
 {
+	HANDLE hProcess;
 	DWORD dwProcessId;
 	DWORD dwModuleCount;
 	WCHAR szProcessName[MAX_PROCESS_LEN];
 	//todo：智能指针？
 	vector<MODULE_INFO*> m_vecModuleInfo;
-	_PROCESS_INFO():dwModuleCount(0)
+	_PROCESS_INFO():
+		hProcess(NULL),
+		dwModuleCount(0)
 	{
 		ZeroMemory(szProcessName, MAX_PROCESS_LEN);
 	}
 
 	~_PROCESS_INFO()
 	{
+		if (hProcess)
+		{
+			CloseHandle(hProcess);
+		}
+
 		if (m_vecModuleInfo.size() > 0)
 		{
 			for (auto pMoudleInfo : m_vecModuleInfo)
@@ -209,6 +237,8 @@ private:
 	*/
 	BOOL FixBaseReloc(LPVOID pBuffer, PPE_INFO pPeInfo, LPVOID lpDLLBase);
 
+	VOID FixBaseRelocInner(LPVOID pBuffer, PPE_INFO pPeInfo, LPVOID lpDLLBase, LPVOID lpImageBase);
+
 	/**
 	* 构建在内存中模拟的DLL的导入表
 	*
@@ -218,6 +248,8 @@ private:
 	* @return
 	*/
 	BOOL BuildImportTable(LPVOID pBuffer, PPE_INFO pPeInfo, PMODULE_INFO pModuleInfo);
+	BOOL BuildImportTable32Inner(LPVOID pBuffer, PPE_INFO pPeInfo, PMODULE_INFO pModuleInfo);
+	BOOL BuildImportTable64Inner(LPVOID pBuffer, PPE_INFO pPeInfo, PMODULE_INFO pModuleInfo);
 
 	/**
 	* 重定位段是一个数组，每个成员表示待修复的一块内容，这里修复其中的一块数据
@@ -234,7 +266,11 @@ private:
 	*
 	* @return
 	*/
-	BOOL ScanSingleModuleIATHook(PMODULE_INFO pModuleInfo, LPVOID pDllMemoryBuffer);
+	BOOL ScanModuleIATHook(PMODULE_INFO pModuleInfo, LPVOID pDllMemoryBuffer);
+
+	BOOL ScanModule32IATHookInner(PMODULE_INFO pModuleInfo, LPVOID pDllMemoryBuffer);
+	BOOL ScanModule64IATHookInner(PMODULE_INFO pModuleInfo, LPVOID pDllMemoryBuffer);
+
 
 	/**
 	* 对某个模块进行EATHook扫描
@@ -243,7 +279,7 @@ private:
 	* 说明：如果在构建某个DLL的导入表之前，提供导出的DLL的导出表被Hook了，也可能会篡改之后的函数调用地址
 	* @return
 	*/
-	BOOL ScanSingleModuleEATHook(PMODULE_INFO pModuleInfo, LPVOID pDllMemoryBuffer);
+	BOOL ScanModuleEATHook(PMODULE_INFO pModuleInfo, LPVOID pDllMemoryBuffer);
 
 	/**
 	* 对某个模块进行InlineHook扫描
@@ -251,9 +287,11 @@ private:
 	*
 	* @return
 	*/
-	BOOL ScanSingleModuleInlineHook(PMODULE_INFO pModuleInfo, LPVOID pDllMemoryBuffer);
+	//BOOL ScanModuleInlineHook(PMODULE_INFO pModuleInfo, LPVOID pDllMemoryBuffer);
 
-	BOOL ScanSingleModuleInlineHook2(PMODULE_INFO pModuleInfo, LPVOID pDllMemoryBuffer);
+	BOOL ScanModuleInlineHook(PMODULE_INFO pModuleInfo, LPVOID pDllMemoryBuffer);
+	BOOL ScanModule32InlineHook(PMODULE_INFO pModuleInfo, LPVOID pDllMemoryBuffer);
+	BOOL ScanModule64InlineHook(PMODULE_INFO pModuleInfo, LPVOID pDllMemoryBuffer);
 
 	BOOL GetExportFuncsBoundary(PMODULE_INFO pModuleInfo, std::vector<UINT64>& vecOffsets);
 
@@ -264,9 +302,10 @@ private:
 	LPVOID GetExportFuncAddrByOrdinal(LPVOID pExportDLLBase, PPE_INFO pExportDLLInfo, WORD wOrdinal);
 	
 	//回调函数
-	static BOOL CbCollectProcessInfo(PPROCESS_INFO pProcessInfo, PBOOL pBreak);
-	static BOOL CbCollectModuleInfo(PPROCESS_INFO pProcessInfo, PMODULE_INFO pModuleInfo);
-	static BOOL CbRemoveWow64ModuleInfo(PPROCESS_INFO pProcessInfo, PMODULE_INFO pModuleInfo);
+	static BOOL WINAPI CbCollectProcessInfo(PPROCESS_INFO pProcessInfo, PBOOL pBreak);
+	static BOOL WINAPI CbCollectModuleInfo(PPROCESS_INFO pProcessInfo, PMODULE_INFO pModuleInfo);
+	static BOOL WINAPI CbCollectWow64ModuleInfo(PPROCESS_INFO pProcessInfo, PMODULE_INFO pModuleInfo);
+	static BOOL WINAPI CbRemoveWow64ModuleInfo(PPROCESS_INFO pProcessInfo, PMODULE_INFO pModuleInfo);
 
 	wchar_t* ConvertCharToWchar(const char* p);
 	VOID FreeConvertedWchar(wchar_t* &p);
