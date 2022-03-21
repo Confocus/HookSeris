@@ -80,7 +80,7 @@ BOOL CR3APIHookScanner::ScanAllProcesses()
 
 		//todo：考虑进程消失的情况和进程ID变动的情况，将扫描的进程挂起
 		//ScanSingleProcessById(pProcessInfo->dwProcessId);
-		ScanSingleProcess(pProcessInfo);
+		ScanProcess(pProcessInfo);
 	}
 
 	return TRUE;
@@ -115,7 +115,7 @@ BOOL CR3APIHookScanner::ScanProcessById(DWORD dwProcessId)
 				break;
 			}
 
-			ScanSingleProcess(pProcessInfo);
+			ScanProcess(pProcessInfo);
 			bRet = TRUE;
 			break;
 		}
@@ -218,7 +218,7 @@ BOOL CR3APIHookScanner::EmurateModules(PPROCESS_INFO pProcessInfo)
 	if (m_bIsWow64)
 	{
 		if (!GetModulesSnapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, pProcessInfo, CbCollectWow64ModuleInfo) || 
-			!GetModulesSnapshot(TH32CS_SNAPMODULE, pProcessInfo, CbRemoveWow64ModuleInfo))
+			!GetModulesSnapshot(TH32CS_SNAPMODULE, pProcessInfo, CbRemoveModuleInfo))
 		{
 			return FALSE;
 		}
@@ -306,7 +306,7 @@ VOID CR3APIHookScanner::SaveModuleInfo(PMODULE_INFO pModuleInfo, MODULEENTRY32& 
 	return;
 }
 
-BOOL CR3APIHookScanner::ScanSingleProcess(PPROCESS_INFO pProcessInfo)
+BOOL CR3APIHookScanner::ScanProcess(PPROCESS_INFO pProcessInfo)
 {
 	CHECK_POINTER_NULL(pProcessInfo, FALSE);
 
@@ -767,9 +767,7 @@ BOOL CR3APIHookScanner::BuildImportTable32Inner(LPVOID pDllMemoryBuffer, PPE_INF
 	DWORD dwImportTableCount = 0;
 	DWORD dwOriginImportTableSize = pPeInfo->dwImportDirSize;
 	PIMAGE_IMPORT_DESCRIPTOR pSimulateOriginImportTableVA = NULL;
-	PE_INFO SimulateDLLInfo = { 0 };
 	PIMAGE_IMPORT_BY_NAME pName = NULL;
-	PIMAGE_IMPORT_BY_NAME pSimulateName = NULL;
 	char* pDLLName = NULL;
 	wchar_t* wcsDLLName = NULL;
 	PIMAGE_THUNK_DATA32 pSimulateFirstThunk = NULL;
@@ -780,10 +778,14 @@ BOOL CR3APIHookScanner::BuildImportTable32Inner(LPVOID pDllMemoryBuffer, PPE_INF
 
 	for (int i = 0; i < dwImportTableCount && pSimulateOriginImportTableVA->Name; i++)
 	{
-		//找到依赖的DLL
-		HMODULE lpImportDLLAddr = NULL;
+		LPVOID lpWow64BaseAddr = NULL;
+		LPVOID lpBaseAddr = NULL;
 		std::wstring wsRedirectedDLLName;
 		pDLLName = (char*)pDllMemoryBuffer + pSimulateOriginImportTableVA->Name;
+		if (strcmp(pDLLName, "api-ms-win-core-processthreads-l1-1-0.dll") == 0)
+		{
+			printf("");
+		}
 		PE_INFO ImportDLLInfo = { 0 };
 		wcsDLLName = ConvertCharToWchar(pDLLName);
 
@@ -791,21 +793,26 @@ BOOL CR3APIHookScanner::BuildImportTable32Inner(LPVOID pDllMemoryBuffer, PPE_INF
 		wsRedirectedDLLName = RedirectDLLPath(wcsDLLName, pModuleInfo->szModuleName, NULL);//这里是第一次调用RedirectDLLPath
 		if (0 != wsRedirectedDLLName.size())
 		{
-			lpImportDLLAddr = GetModuleHandle(wsRedirectedDLLName.c_str());
+			transform(wsRedirectedDLLName.begin(), wsRedirectedDLLName.end(), wsRedirectedDLLName.begin(), tolower);
+			lpWow64BaseAddr = FindWow64BaseAddrByName(wsRedirectedDLLName.c_str());
+			lpBaseAddr = FindBaseAddrByName(wsRedirectedDLLName.c_str());
 		}
 		else
 		{
-			lpImportDLLAddr = GetModuleHandle(wcsDLLName);//GetModuleHandle得到的是导入这个DLL的那个DLL的基地址
+			std::wstring wsDLLName = wcsDLLName;
+			transform(wsDLLName.begin(), wsDLLName.end(), wsDLLName.begin(), tolower);
+			lpWow64BaseAddr = FindWow64BaseAddrByName(wsDLLName.c_str());
+			lpBaseAddr = FindBaseAddrByName(wsDLLName.c_str());
 		}
 		//获取"已经映射到调用进程中"的模块的句柄
 
-		if (!lpImportDLLAddr)
+		if (!lpWow64BaseAddr || !lpBaseAddr)
 		{
 			FreeConvertedWchar(wcsDLLName);
 			return FALSE;
 		}
 
-		if (!AnalyzePEInfo(lpImportDLLAddr, &ImportDLLInfo))
+		if (!AnalyzePEInfo(lpWow64BaseAddr, &ImportDLLInfo))
 		{
 			FreeConvertedWchar(wcsDLLName);
 			return FALSE;
@@ -823,15 +830,14 @@ BOOL CR3APIHookScanner::BuildImportTable32Inner(LPVOID pDllMemoryBuffer, PPE_INF
 			if (pSimulateOriginFirstThunk->u1.Ordinal & IMAGE_ORDINAL_FLAG32)
 			{
 				wOrdinal = pSimulateFirstThunk->u1.Ordinal & 0xFFFF;
-				ExportAddr = GetExportFuncAddrByOrdinal(lpImportDLLAddr, &ImportDLLInfo, wOrdinal);
+				ExportAddr = GetWow64ExportFuncAddrByOrdinal(lpWow64BaseAddr, &ImportDLLInfo, lpBaseAddr, wOrdinal);
 			}
 			else
 			{
 				wchar_t* wcsFuncName = NULL;
 				pName = (PIMAGE_IMPORT_BY_NAME)((BYTE*)pDllMemoryBuffer + pSimulateOriginFirstThunk->u1.AddressOfData);
 				wcsFuncName = ConvertCharToWchar(pName->Name);
-
-				ExportAddr = GetExportFuncAddrByName(lpImportDLLAddr, &ImportDLLInfo, wcsFuncName, pModuleInfo->szModuleName, wsRedirectedDLLName.c_str());
+				ExportAddr = GetWow64ExportFuncAddrByName(lpWow64BaseAddr, &ImportDLLInfo, lpBaseAddr, wcsFuncName, pModuleInfo->szModuleName, wsRedirectedDLLName.c_str());
 				FreeConvertedWchar(wcsFuncName);
 			}
 
@@ -876,6 +882,8 @@ BOOL CR3APIHookScanner::BuildImportTable64Inner(LPVOID pDllMemoryBuffer, PPE_INF
 
 		//pModuleInfo->szModuleName此时是DLL自身，我们在重定向的时候要避免重定向为自身
 		wsRedirectedDLLName = RedirectDLLPath(wcsDLLName, pModuleInfo->szModuleName, NULL);//这里是第一次调用RedirectDLLPath
+
+		//todo：这里也改成从列表中查取？
 		if (0 != wsRedirectedDLLName.size())
 		{
 			lpImportDLLAddr = GetModuleHandle(wsRedirectedDLLName.c_str());
@@ -935,6 +943,36 @@ BOOL CR3APIHookScanner::BuildImportTable64Inner(LPVOID pDllMemoryBuffer, PPE_INF
 	}
 
 	return TRUE;
+}
+
+LPVOID CR3APIHookScanner::FindWow64BaseAddrByName(const wchar_t* pName)
+{
+	CHECK_POINTER_NULL(pName, NULL);
+
+	for (auto p : m_pScannedProcess->m_vecModuleInfo)
+	{
+		if (wcscmp(p->szModuleName, pName) == 0)
+		{
+			return p->pDllWow64BaseAddr;
+		}
+	}
+
+	return NULL;
+}
+
+LPVOID CR3APIHookScanner::FindBaseAddrByName(const wchar_t* pName)
+{
+	CHECK_POINTER_NULL(pName, NULL);
+
+	for (auto p : m_pScannedProcess->m_vecModuleInfo)
+	{
+		if (wcscmp(p->szModuleName, pName) == 0)
+		{
+			return p->pDllBaseAddr;
+		}
+	}
+
+	return NULL;
 }
 
 BOOL CR3APIHookScanner::FixBaseRelocBlock(LPVOID, LPVOID)
@@ -1016,7 +1054,7 @@ BOOL CR3APIHookScanner::ScanModule32IATHookInner(PMODULE_INFO pModuleInfo, LPVOI
 	if (m_OriginDLLInfo.dwImportDirRVA && m_OriginDLLInfo.dwImportDirSize > 0)
 	{
 		dwOriginImportTableSize = m_OriginDLLInfo.dwImportDirSize;
-		pOriginImportTableVA = (PIMAGE_IMPORT_DESCRIPTOR)(pModuleInfo->pDllBaseAddr +
+		pOriginImportTableVA = (PIMAGE_IMPORT_DESCRIPTOR)(pModuleInfo->pDllWow64BaseAddr +
 			m_OriginDLLInfo.dwImportDirRVA);
 		pSimulateOriginImportTableVA = (PIMAGE_IMPORT_DESCRIPTOR)((BYTE*)pDllMemoryBuffer +
 			m_OriginDLLInfo.dwImportDirRVA);
@@ -1024,26 +1062,32 @@ BOOL CR3APIHookScanner::ScanModule32IATHookInner(PMODULE_INFO pModuleInfo, LPVOI
 
 		for (int i = 0; i < dwImportTableCount && pOriginImportTableVA->Name; i++)
 		{
-			pFirstThunk = (PIMAGE_THUNK_DATA32)(pModuleInfo->pDllBaseAddr +
+			char* pn = (char*)((BYTE*)pModuleInfo->pDllWow64BaseAddr + pOriginImportTableVA->Name);
+			pFirstThunk = (PIMAGE_THUNK_DATA32)(pModuleInfo->pDllWow64BaseAddr +
 				pOriginImportTableVA->FirstThunk);
-			pOriginFirstThunk = (PIMAGE_THUNK_DATA32)(pModuleInfo->pDllBaseAddr +
+			pOriginFirstThunk = (PIMAGE_THUNK_DATA32)(pModuleInfo->pDllWow64BaseAddr +
 				pOriginImportTableVA->OriginalFirstThunk);
 			pSimulateFirstThunk = (PIMAGE_THUNK_DATA32)((BYTE*)pDllMemoryBuffer +
 				pOriginImportTableVA->FirstThunk);
 			pSimulateOriginFirstThunk = (PIMAGE_THUNK_DATA32)((BYTE*)pDllMemoryBuffer +
 				pOriginImportTableVA->OriginalFirstThunk);
-
+			int j = 0;
 			while (pFirstThunk->u1.Function)
 			{
+				j++;
+				if (j == 572)
+				{
+					printf("");
+				}
 				BOOL bNoNameFunc = FALSE;
-				if (pOriginFirstThunk->u1.Ordinal & IMAGE_ORDINAL_FLAG64)//无名函数的情况，靠Ordinal
+				if (pOriginFirstThunk->u1.Ordinal & IMAGE_ORDINAL_FLAG32)
 				{
 					dwOrdinal = pOriginFirstThunk->u1.Ordinal & 0xFFFF;
 					bNoNameFunc = TRUE;
 				}
 				else
 				{
-					pName = (PIMAGE_IMPORT_BY_NAME)(pModuleInfo->pDllBaseAddr + pOriginFirstThunk->u1.AddressOfData);
+					pName = (PIMAGE_IMPORT_BY_NAME)(pModuleInfo->pDllWow64BaseAddr + pOriginFirstThunk->u1.AddressOfData);
 					pSimulateName = (PIMAGE_IMPORT_BY_NAME)((BYTE*)pDllMemoryBuffer + pOriginFirstThunk->u1.AddressOfData);
 
 					/*printf("%d.%s		", j, pName->Name);
@@ -1052,7 +1096,7 @@ BOOL CR3APIHookScanner::ScanModule32IATHookInner(PMODULE_INFO pModuleInfo, LPVOI
 					printf("%d. 0x%016I64X\n", j++, pSimulateFirstThunk->u1.Function);*/
 				}
 
-				if (pFirstThunk->u1.Function != pSimulateFirstThunk->u1.Function)
+				if ((pFirstThunk->u1.Function != pSimulateFirstThunk->u1.Function) && (0 != pSimulateFirstThunk->u1.Function))
 				{
 					if (!bNoNameFunc)
 					{
@@ -1614,6 +1658,7 @@ LPVOID CR3APIHookScanner::GetExportFuncAddrByName(LPVOID pExportDLLBase, PPE_INF
 				WORD wOrdinal = pAddressOfNameOrdinals[i];
 				FreeConvertedWchar(wcsFuncName);
 				lpExportFuncAddr = (DWORD*)((BYTE*)pExportDLLBase + pFuncAddresses[wOrdinal]);
+
 				break;
 			}
 			FreeConvertedWchar(wcsFuncName);
@@ -1629,6 +1674,17 @@ LPVOID CR3APIHookScanner::GetExportFuncAddrByName(LPVOID pExportDLLBase, PPE_INF
 	}
 
 	return lpExportFuncAddr;
+}
+
+LPVOID CR3APIHookScanner::GetWow64ExportFuncAddrByName(LPVOID pExportDLLBase, PPE_INFO pExportDLLInfo, LPVOID lpx86BaseAddr, const wchar_t* pFuncName, const wchar_t* pBaseDLL, const wchar_t* pPreHostDLL)
+{
+	LPVOID lpExportAddr = GetExportFuncAddrByName(pExportDLLBase, pExportDLLInfo, pFuncName, pBaseDLL, pPreHostDLL);
+	if (NULL == lpExportAddr)
+	{
+		return NULL;
+	}
+
+	return (LPVOID)((UINT64)lpExportAddr - (UINT64)pExportDLLBase + (UINT64)lpx86BaseAddr);
 }
 
 LPVOID CR3APIHookScanner::GetExportFuncAddrByOrdinal(LPVOID pExportDLLBase, PPE_INFO pExportDLLInfo, WORD wOrdinal)
@@ -1654,6 +1710,17 @@ LPVOID CR3APIHookScanner::GetExportFuncAddrByOrdinal(LPVOID pExportDLLBase, PPE_
 	return NULL;
 }
 
+LPVOID CR3APIHookScanner::GetWow64ExportFuncAddrByOrdinal(LPVOID pExportDLLBase, PPE_INFO pExportDLLInfo, LPVOID lpx86BaseAddr, WORD wOrdinal)
+{
+	LPVOID lpExportAddr = GetExportFuncAddrByOrdinal(pExportDLLBase, pExportDLLInfo, wOrdinal);
+	if (NULL == lpExportAddr)
+	{
+		return NULL;
+	}
+
+	return (LPVOID)((UINT64)lpExportAddr - (UINT64)pExportDLLBase + (UINT64)lpx86BaseAddr);
+}
+
 BOOL CR3APIHookScanner::CbCollectProcessInfo(PPROCESS_INFO pProcessInfo, PBOOL pBreak)
 {
 	if (NULL == pProcessInfo || NULL == pBreak)
@@ -1677,24 +1744,84 @@ BOOL CR3APIHookScanner::CbCollectModuleInfo(PPROCESS_INFO pProcessInfo, PMODULE_
 	return TRUE;
 }
 
+typedef
+NTSTATUS(NTAPI* Ptr_NtReadVirtualMemory)(
+
+	IN HANDLE               ProcessHandle,
+	IN PVOID                BaseAddress,
+	OUT PVOID               Buffer,
+	IN ULONG                NumberOfBytesToRead,
+	OUT PULONG              NumberOfBytesReaded OPTIONAL);
+
+typedef NTSTATUS(NTAPI* pfnNtWow64ReadVirtualMemory64)(
+	IN HANDLE ProcessHandle,
+	IN PVOID64 BaseAddress,
+	OUT PVOID Buffer,
+	IN ULONG64 Size,
+	OUT PULONG64 NumberOfBytesRead
+	);
+
 BOOL WINAPI CR3APIHookScanner::CbCollectWow64ModuleInfo(PPROCESS_INFO pProcessInfo, PMODULE_INFO pModuleInfo)
 {
 	CHECK_POINTER_NULL(pProcessInfo, FALSE);
 	CHECK_POINTER_NULL(pModuleInfo, FALSE);
+	ULONG dwReadByte = 0;
+	DWORD dwErrCode = 0;
+	DWORD dwOldAttr = 0;
 	pModuleInfo->pDllWow64BaseAddr = new(std::nothrow) BYTE[pModuleInfo->dwSizeOfImage];
 	ZeroMemory(pModuleInfo->pDllWow64BaseAddr, pModuleInfo->dwSizeOfImage);
 	if (NULL == pModuleInfo->pDllWow64BaseAddr)
 	{
 		return FALSE;
 	}
-	ReadProcessMemory(pProcessInfo->hProcess, (LPVOID)pModuleInfo->pDllBaseAddr, pModuleInfo->pDllWow64BaseAddr, pModuleInfo->dwSizeOfImage, 0);
 
+	/*HMODULE hMods[1024];
+	DWORD cbNeeded;*/
+	//EnumProcessModulesEx(pProcessInfo->hProcess, hMods, sizeof(hMods), &cbNeeded, LIST_MODULES_ALL);
+	//for (int i = 0; i < (cbNeeded / sizeof(HMODULE)); i++)
+	//{
+	//	TCHAR szModName[MAX_PATH];
+
+	//	// Get the full path to the module's file.
+
+	//	if (GetModuleFileNameEx(pProcessInfo->hProcess, hMods[i], szModName,
+	//		sizeof(szModName) / sizeof(TCHAR)))
+	//	{
+	//		// Print the module name and handle value.
+	//		std::wstring s = szModName;
+	//		printf("");
+	//		//_tprintf(TEXT("\t%s (0x%08X)\n"), szModName, hMods[i]);
+	//	}
+	//}
+
+	/*HMODULE hModule = LoadLibrary(TEXT("Ntdll.dll "));
+	Ptr_NtReadVirtualMemory NtReadVirtualMemory = (Ptr_NtReadVirtualMemory)GetProcAddress(hModule, "NtReadVirtualMemory");*/
+
+	//pfnNtWow64QueryInformationProcess64 NtWow64QueryInformationProcess64 = (pfnNtWow64QueryInformationProcess64)GetProcAddress(NtdllModule, "NtWow64QueryInformationProcess64");
+	//pfnNtWow64ReadVirtualMemory64 NtWow64ReadVirtualMemory64 = (pfnNtWow64ReadVirtualMemory64)GetProcAddress(hModule, "NtWow64ReadVirtualMemory64");
+	
+	/*PMEMORY_BASIC_INFORMATION pmbi = new MEMORY_BASIC_INFORMATION;
+	if (VirtualQueryEx(pProcessInfo->hProcess, (LPVOID)pModuleInfo->pDllBaseAddr, pmbi, sizeof(MEMORY_BASIC_INFORMATION)))
+	{
+		cout << "protection :" << pmbi->AllocationProtect << endl;
+	}*/
+
+	VirtualProtectEx(pProcessInfo->hProcess, pModuleInfo->pDllBaseAddr, pModuleInfo->dwSizeOfImage, PAGE_EXECUTE_READWRITE, &dwOldAttr);
+	/*dwErrCode = GetLastError();
+	NtReadVirtualMemory(pProcessInfo->hProcess, pModuleInfo->pDllBaseAddr, pModuleInfo->pDllWow64BaseAddr, pModuleInfo->dwSizeOfImage, NULL);
+	dwErrCode = GetLastError();*/
+	//todo：读取kernel32.dll内存失败
+	ReadProcessMemory(pProcessInfo->hProcess, pModuleInfo->pDllBaseAddr, pModuleInfo->pDllWow64BaseAddr, pModuleInfo->dwSizeOfImage, 0);
+	dwErrCode = GetLastError();
+	//NtWow64ReadVirtualMemory64(pProcessInfo->hProcess, pModuleInfo->pDllBaseAddr, pModuleInfo->pDllWow64BaseAddr, pModuleInfo->dwSizeOfImage, NULL);
+	VirtualProtectEx(pProcessInfo->hProcess, pModuleInfo->pDllBaseAddr, pModuleInfo->dwSizeOfImage, dwOldAttr, NULL);
 	pProcessInfo->m_vecModuleInfo.push_back(pModuleInfo);
 
+	//FreeLibrary(hModule);
 	return TRUE;
 }
 
-BOOL CR3APIHookScanner::CbRemoveWow64ModuleInfo(PPROCESS_INFO pProcessInfo, PMODULE_INFO pModuleInfo)
+BOOL CR3APIHookScanner::CbRemoveModuleInfo(PPROCESS_INFO pProcessInfo, PMODULE_INFO pModuleInfo)
 {
 	CHECK_POINTER_NULL(pProcessInfo, FALSE);
 	CHECK_POINTER_NULL(pModuleInfo, FALSE);
@@ -1964,13 +2091,14 @@ VOID CR3APIHookScanner::SaveHookResult(HOOK_TYPE type, const wchar_t* pModulePat
 	memset((void*)HookResult.szModule, 0, sizeof(wchar_t) * MAX_MODULE_PATH_LEN);
 	if (pModulePath)
 	{
-		wcscpy_s((wchar_t*)HookResult.szModule, min(wcslen(pModulePath), MAX_MODULE_PATH_LEN), (wchar_t*)pModulePath);
+		int n = wcslen(pModulePath);
+		wcscpy_s((wchar_t*)HookResult.szModule, wcslen(pModulePath) + 1, (wchar_t*)pModulePath);
 	}
 
 	memset((void*)HookResult.szFuncName, 0, sizeof(wchar_t) * MAX_FUNCTION_NAME);
 	if (pFunc)
 	{
-		wcscpy_s((wchar_t*)HookResult.szFuncName, min(wcslen(pFunc), MAX_FUNCTION_NAME), (wchar_t*)pFunc);
+		wcscpy_s((wchar_t*)HookResult.szFuncName, wcslen(pFunc) + 1, (wchar_t*)pFunc);
 
 	}
 

@@ -70,8 +70,8 @@ typedef struct _HOOK_RESULT
 	BOOL bIsHooked;
 	DWORD dwHookId;
 	HOOK_TYPE type;
-	const wchar_t szModule[MAX_MODULE_PATH_LEN];
-	const wchar_t szFuncName[MAX_FUNCTION_NAME];
+	wchar_t szModule[MAX_MODULE_PATH_LEN];
+	wchar_t szFuncName[MAX_FUNCTION_NAME];
 	LPVOID lpHookedAddr;
 	LPVOID lpRecoverAddr;
 }HOOK_RESULT, *PHOOK_RESULT;
@@ -185,7 +185,7 @@ private:
 	* @param pProcessInfo 进程信息
 	* @param pCallbackFunc 遍历时调用的回调函数
 	*/
-	BOOL ScanSingleProcess(PPROCESS_INFO pProcessInfo);
+	BOOL ScanProcess(PPROCESS_INFO pProcessInfo);
 
 	/**
 	* 保存必要的Module Info数据
@@ -251,6 +251,10 @@ private:
 	BOOL BuildImportTable32Inner(LPVOID pBuffer, PPE_INFO pPeInfo, PMODULE_INFO pModuleInfo);
 	BOOL BuildImportTable64Inner(LPVOID pBuffer, PPE_INFO pPeInfo, PMODULE_INFO pModuleInfo);
 
+	LPVOID FindWow64BaseAddrByName(const wchar_t* pName);
+	LPVOID FindBaseAddrByName(const wchar_t* pName);
+
+
 	/**
 	* 重定位段是一个数组，每个成员表示待修复的一块内容，这里修复其中的一块数据
 	*
@@ -299,13 +303,16 @@ private:
 
 	LPVOID GetExportFuncAddrByName(LPVOID pExportDLLBase, PPE_INFO pExportDLLInfo, const wchar_t* pFuncName, const wchar_t* pBaseDLL, const wchar_t* pPreHostDLL);
 
+	LPVOID GetWow64ExportFuncAddrByName(LPVOID pExportDLLBase, PPE_INFO pExportDLLInfo, LPVOID lpx86BaseAddr, const wchar_t* pFuncName, const wchar_t* pBaseDLL, const wchar_t* pPreHostDLL);
+
 	LPVOID GetExportFuncAddrByOrdinal(LPVOID pExportDLLBase, PPE_INFO pExportDLLInfo, WORD wOrdinal);
+	LPVOID GetWow64ExportFuncAddrByOrdinal(LPVOID pExportDLLBase, PPE_INFO pExportDLLInfo, LPVOID lpx86BasAeAddr, WORD wOrdinal);
 	
 	//回调函数
 	static BOOL WINAPI CbCollectProcessInfo(PPROCESS_INFO pProcessInfo, PBOOL pBreak);
 	static BOOL WINAPI CbCollectModuleInfo(PPROCESS_INFO pProcessInfo, PMODULE_INFO pModuleInfo);
 	static BOOL WINAPI CbCollectWow64ModuleInfo(PPROCESS_INFO pProcessInfo, PMODULE_INFO pModuleInfo);
-	static BOOL WINAPI CbRemoveWow64ModuleInfo(PPROCESS_INFO pProcessInfo, PMODULE_INFO pModuleInfo);
+	static BOOL WINAPI CbRemoveModuleInfo(PPROCESS_INFO pProcessInfo, PMODULE_INFO pModuleInfo);
 
 	wchar_t* ConvertCharToWchar(const char* p);
 	VOID FreeConvertedWchar(wchar_t* &p);
