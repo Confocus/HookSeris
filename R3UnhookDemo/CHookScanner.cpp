@@ -1404,7 +1404,7 @@ BOOL CHookScanner::ScanModuleEATHook32Inner(PMODULE_INFO pModuleInfo, LPVOID pDl
 		if (pSimulateExportFuncAddr[i] != pExportFuncAddr[i])
 		{
 			wchar_t* wpName = ConvertCharToWchar(pName);
-			SaveHookResult(HOOK_TYPE::EATHook, pModuleInfo->szModulePath, wpName, (LPVOID)&pExportFuncAddr[wOrdinal], (LPVOID)&pSimulateExportFuncAddr[i]);
+			SaveHookResult(HOOK_TYPE::EATHook, pModuleInfo->szModulePath, wpName, (LPVOID)&pExportFuncAddr[i], (LPVOID)&pSimulateExportFuncAddr[i]);
 			FreeConvertedWchar(wpName);
 
 			printf("EAT Hook found.\n");
@@ -1652,11 +1652,10 @@ BOOL CHookScanner::ScanModule32InlineHook(PMODULE_INFO pModuleInfo, LPVOID pDllM
 				continue;
 			}
 
-			//todo:RtlTimeToSecondsSince1970
 			if (memcmp((BYTE*)lpSimDLLBase + ImportFuncOffset, ExportAddr, INLINE_HOOK_LEN) != 0)
 			{
 				LPVOID lpBaseAddr = FindBaseAddrByName(wcsDLLName);
-				SaveHookResult(HOOK_TYPE::IATHook, pModuleInfo->szModulePath, wcsFuncName, (BYTE*)lpBaseAddr + ImportFuncOffset, (BYTE*)lpSimDLLBase + ImportFuncOffset);
+				SaveHookResult(HOOK_TYPE::InlineHook, pModuleInfo->szModulePath, wcsFuncName, (BYTE*)lpBaseAddr + ImportFuncOffset, (BYTE*)lpSimDLLBase + ImportFuncOffset);
 				printf("IAT Inlie Hook.\n");
 			}
 			FreeConvertedWchar(wcsFuncName);
@@ -1768,7 +1767,7 @@ BOOL CHookScanner::ScanModule64InlineHook(PMODULE_INFO pModuleInfo, LPVOID pDllM
 			//todo：待解决NlsMbCodePageTag这类函数不再code节的问题
 			if (memcmp((BYTE*)lpSimDLLBase + ImportFuncOffset, ExportAddr, INLINE_HOOK_LEN) != 0)
 			{
-				SaveHookResult(HOOK_TYPE::IATHook, pModuleInfo->szModulePath, wcsFuncName, ExportAddr, (BYTE*)lpSimDLLBase + ImportFuncOffset);
+				SaveHookResult(HOOK_TYPE::InlineHook, pModuleInfo->szModulePath, wcsFuncName, ExportAddr, (BYTE*)lpSimDLLBase + ImportFuncOffset);
 				printf("IAT Inlie Hook.\n");
 			}
 
@@ -2245,10 +2244,14 @@ LPVOID CHookScanner::GetModuleSimCache(const wchar_t* pModulePath)
 VOID CHookScanner::SaveHookResult(HOOK_TYPE type, const wchar_t* pModulePath, const wchar_t* pFunc, LPVOID pHookedAddr, LPVOID lpRecoverAddr)
 {
 	HOOK_RESULT HookResult = { 0 };
+	PPROCESS_INFO pProcessInfo = NULL;
+	HookResult.dwHookId = ++dwHookResCount;
 	HookResult.lpHookedAddr = pHookedAddr;
 	HookResult.lpRecoverAddr = lpRecoverAddr;
-	HookResult.type = HOOK_TYPE::IATHook;
-	
+	HookResult.type = type;
+	pProcessInfo = GetScannedProcess();
+	HookResult.dwProcessId = pProcessInfo->dwProcessId;
+
 	memset((void*)HookResult.szModule, 0, sizeof(wchar_t) * MAX_MODULE_PATH_LEN);
 	if (pModulePath)
 	{
@@ -2267,6 +2270,46 @@ VOID CHookScanner::SaveHookResult(HOOK_TYPE type, const wchar_t* pModulePath, co
 	return;
 }
 
+BOOL CHookScanner::UnHookInner(PPROCESS_INFO pProcessInfo, PHOOK_RESULT pHookResult)
+{
+	CHECK_POINTER_NULL(pProcessInfo, FALSE);
+	CHECK_POINTER_NULL(pHookResult, FALSE);
+
+	switch (pHookResult->type)
+	{
+	case HOOK_TYPE::IATHook:
+	{
+		if (m_bIsWow64)
+		{
+			UnHookWirteProcessMemory(pProcessInfo->hProcess, pHookResult, 4);
+		}
+		else
+		{
+			//恢复导入表中的VA
+			UnHookWirteProcessMemory(pProcessInfo->hProcess, pHookResult, 8);
+		}
+
+		break;
+	}
+	case HOOK_TYPE::EATHook:
+	{
+		//恢复导出表中的偏移
+		UnHookWirteProcessMemory(pProcessInfo->hProcess, pHookResult, 4);
+		break;
+	}
+	case HOOK_TYPE::InlineHook:
+	{
+		//todo：恢复时挂起所有线程
+		UnHookWirteProcessMemory(pProcessInfo->hProcess, pHookResult, INLINE_HOOK_LEN);
+		break;
+	}
+	default:
+		break;
+	}
+
+	return TRUE;
+}
+
 //todo:摘钩子时要考虑挂起线程的情况
 BOOL CHookScanner::UnHook()
 {
@@ -2278,45 +2321,41 @@ BOOL CHookScanner::UnHook()
 
 	for (auto p : m_vecHookRes)
 	{
-
-		switch (p.type)
-		{
-		case HOOK_TYPE::IATHook:
-		{
-			//todo：这里的代码是否可以抽象
-			if (m_bIsWow64)
-			{
-				UnHookWirteProcessMemory(pProcessInfo->hProcess, &p, 4);
-			}
-			else
-			{
-				//恢复导入表中的VA
-				UnHookWirteProcessMemory(pProcessInfo->hProcess, &p, 8);
-			}
-			
-			break;
-		}
-		case HOOK_TYPE::EATHook:
-		{
-			//恢复导出表中的偏移
-			UnHookWirteProcessMemory(pProcessInfo->hProcess, &p, 4);
-			break;
-		}
-		case HOOK_TYPE::InlineHook:
-		{
-			//todo：恢复时挂起所有线程
-			UnHookWirteProcessMemory(pProcessInfo->hProcess, &p, INLINE_HOOK_LEN);
-			break;
-		}
-		default:
-			break;
-		}
+		UnHookInner(pProcessInfo, &p);
 	}
 	return TRUE;
 }
 
 BOOL CHookScanner::UnHook(DWORD dwHookId)
 {
+	if (dwHookId <= 0)
+	{
+		return FALSE;
+	}
+
+	PHOOK_RESULT pHookResult = NULL;
+	PPROCESS_INFO pProcessInfo = GetScannedProcess();
+	if (!pProcessInfo)
+	{
+		return FALSE;
+	}
+
+	for(auto iter = m_vecHookRes.begin(); iter != m_vecHookRes.end(); iter++)
+	{
+		if (dwHookId == iter->dwHookId)
+		{
+			pHookResult = &(*iter);
+			break;
+		}
+	}
+
+	if (!pHookResult)
+	{
+		return FALSE;
+	}
+
+	UnHookInner(pProcessInfo, pHookResult);
+		
 	return TRUE;
 }
 
