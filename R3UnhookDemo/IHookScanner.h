@@ -45,7 +45,7 @@ typedef struct _HOOK_RESULT
 
 //未支持多线程
 //extern "C" IHookScanner* CreateObject()
-//extern "C" void ReleaseObject(IHookScanner*)
+//extern "C" void ReleaseObject(IHookScanner**)
 
 __interface IHookScanner
 {

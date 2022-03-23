@@ -13,6 +13,8 @@
 
 using namespace std;
 
+//todo：增加日志
+//
 //存储用得到的关键PE信息
 //todo：编译成x64时还有些问题
 typedef struct _PE_INFO{
@@ -35,7 +37,7 @@ typedef struct _MODULE_INFO
 {
 	_MODULE_INFO():
 		pDllBaseAddr(NULL),
-		pDllWow64BaseAddr(NULL),
+		pDllBakupBaseAddr(NULL),
 		dwSizeOfImage(0)
 	{
 
@@ -43,15 +45,18 @@ typedef struct _MODULE_INFO
 
 	~_MODULE_INFO()
 	{
-		if (pDllWow64BaseAddr)
+		if (pDllBakupBaseAddr)
 		{
-			delete[] pDllWow64BaseAddr;
-			pDllWow64BaseAddr = NULL;
+			delete[] pDllBakupBaseAddr;
+			pDllBakupBaseAddr = NULL;
 		}
 	}
 
+	//如果是Wow64程序，则这里是32位地址
 	BYTE* pDllBaseAddr;
-	BYTE* pDllWow64BaseAddr;
+
+	//在64位地址空间中模拟的32位DLL的地址
+	BYTE* pDllBakupBaseAddr;
 	DWORD dwSizeOfImage;
 	WCHAR szModuleName[MAX_MODULE_NAME_LEN];
 	WCHAR szModulePath[MAX_MODULE_PATH_LEN];
@@ -243,7 +248,7 @@ private:
 	BOOL BuildImportTable64Inner(LPVOID pBuffer, PPE_INFO pPeInfo, PMODULE_INFO pModuleInfo);
 
 	VOID SetSimFunctionZero(LPVOID pDllMemoryBuffer, PIMAGE_IMPORT_DESCRIPTOR pSimulateOriginImportTableVA);
-	LPVOID FindWow64BaseAddrByName(const wchar_t* pName);
+	LPVOID FindBackupBaseAddrByName(const wchar_t* pName);
 	LPVOID FindBaseAddrByName(const wchar_t* pName);
 
 
@@ -295,7 +300,7 @@ private:
 
 	DWORD AlignSize(const DWORD dwSize, const DWORD dwAlign);
 
-	LPVOID GetExportFuncAddrByName(LPVOID pExportDLLBase, PPE_INFO pExportDLLInfo, const wchar_t* pFuncName, const wchar_t* pBaseDLL, const wchar_t* pPreHostDLL);
+	LPVOID GetExportFuncAddrByName(LPVOID pExportDLLBase, PPE_INFO pExportDLLInfo, const wchar_t* pFuncName, const wchar_t* pBaseDLL, const wchar_t* pPreHostDLL, LPVOID *ppBase);
 
 	LPVOID GetWow64ExportFuncAddrByName(LPVOID pExportDLLBase, PPE_INFO pExportDLLInfo, LPVOID lpx86BaseAddr, const wchar_t* pFuncName, const wchar_t* pBaseDLL, const wchar_t* pPreHostDLL);
 
@@ -305,15 +310,16 @@ private:
 	//回调函数
 	static BOOL WINAPI CbCollectProcessInfo(PPROCESS_INFO pProcessInfo, PBOOL pBreak);
 	static BOOL WINAPI CbCollectModuleInfo(PPROCESS_INFO pProcessInfo, PMODULE_INFO pModuleInfo);
-	static BOOL WINAPI CbCollectWow64ModuleInfo(PPROCESS_INFO pProcessInfo, PMODULE_INFO pModuleInfo);
-	static BOOL WINAPI CbRemoveModuleInfo(PPROCESS_INFO pProcessInfo, PMODULE_INFO pModuleInfo);
+	static BOOL WINAPI CbCollectx86ModuleInfo(PPROCESS_INFO pProcessInfo, PMODULE_INFO pModuleInfo);
+	static BOOL WINAPI CbCollectWow64Sys32ModuleInfo(PPROCESS_INFO pProcessInfo, PMODULE_INFO pModuleInfo);
+	static BOOL WINAPI CbRemoveSys32ModuleInfo(PPROCESS_INFO pProcessInfo, PMODULE_INFO pModuleInfo);
 
 	wchar_t* ConvertCharToWchar(const char* p);
 	VOID FreeConvertedWchar(wchar_t* &p);
 
 	std::wstring RedirectDLLPath(const wchar_t* path, const wchar_t* pBaseDLL, const wchar_t* pPreHostDLL);
 	BOOL ProbeSxSRedirect(std::wstring& path);//, Process& proc, HANDLE actx /*= INVALID_HANDLE_VALUE*/
-	LPVOID RedirectionExportFuncAddr(const char* lpExportFuncAddr, const wchar_t* pBaseDLL,  const wchar_t* pPreHostDLL);
+	LPVOID RedirectionExportFuncAddr(const char* lpExportFuncAddr, const wchar_t* pBaseDLL,  const wchar_t* pPreHostDLL, LPVOID* ppBase);
 
 	BOOL LoadALLModuleSimCache(PPROCESS_INFO pProcessInfo);
 	VOID ReleaseALLModuleSimCache();
