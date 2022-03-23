@@ -4,10 +4,10 @@
 #include "IHookScanner.h"
 #include <TlHelp32.h>
 
-#define MAX_PROCESS_LEN		520
-#define MAX_MODULE_NAME_LEN		520
-#define INLINE_HOOK_LEN		10
-
+#define MAX_PROCESS_LEN			0x200
+#define MAX_MODULE_NAME_LEN		0x200
+#define INLINE_HOOK_LEN			10
+#define MAX_SUSPEND_THREAD		0x400
 #include <vector>
 #include <unordered_map>
 
@@ -104,6 +104,7 @@ typedef BOOL (WINAPI* CALLBACK_EMUNMODULE)(
 	PPROCESS_INFO pProcessInfo,
 	PMODULE_INFO pModuleInfo);
 
+//todo：支持多线程
 class CHookScanner : public IHookScanner
 {
 public:
@@ -323,6 +324,10 @@ private:
 	BOOL UnHookInner(PPROCESS_INFO pProcessInfo, PHOOK_RESULT pHookResult);
 
 	BOOL UnHookWirteProcessMemory(HANDLE hProcess, PHOOK_RESULT pHookResult, UINT32 uLen);
+
+	BOOL SuspendAllThreads(DWORD dwProcessId, DWORD* pThreadCount, HANDLE szThreadHandle[MAX_SUSPEND_THREAD]);
+	BOOL ResumeAllThreads(DWORD dwProcessId, DWORD dwThreadCount, HANDLE szThreadHandle[MAX_SUSPEND_THREAD]);
+
 private:
 	BOOL m_bIsWow64;
 
