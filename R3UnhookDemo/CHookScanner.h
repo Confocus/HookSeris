@@ -31,6 +31,8 @@ typedef struct _PE_INFO{
 	DWORD dwSectionCnt;
 	DWORD dwSectionAlign;
 	DWORD dwFileAlign;
+	DWORD dwSizeOfCode;
+	DWORD dwBaseOfCode;
 }PE_INFO, *PPE_INFO;
 
 typedef struct _MODULE_INFO
@@ -309,7 +311,7 @@ private:
 	
 	//»Øµ÷º¯Êý
 	static BOOL WINAPI CbCollectProcessInfo(PPROCESS_INFO pProcessInfo, PBOOL pBreak);
-	static BOOL WINAPI CbCollectModuleInfo(PPROCESS_INFO pProcessInfo, PMODULE_INFO pModuleInfo);
+	static BOOL WINAPI CbCollectx64ModuleInfo(PPROCESS_INFO pProcessInfo, PMODULE_INFO pModuleInfo);
 	static BOOL WINAPI CbCollectx86ModuleInfo(PPROCESS_INFO pProcessInfo, PMODULE_INFO pModuleInfo);
 	static BOOL WINAPI CbCollectWow64Sys32ModuleInfo(PPROCESS_INFO pProcessInfo, PMODULE_INFO pModuleInfo);
 	static BOOL WINAPI CbRemoveSys32ModuleInfo(PPROCESS_INFO pProcessInfo, PMODULE_INFO pModuleInfo);
@@ -324,6 +326,8 @@ private:
 	BOOL LoadALLModuleSimCache(PPROCESS_INFO pProcessInfo);
 	VOID ReleaseALLModuleSimCache();
 	LPVOID GetModuleSimCache(const wchar_t* p);
+	DWORD GetModuleBaseOfCode(const wchar_t* p);
+	DWORD GetModuleSizeOfCode(const wchar_t* p);
 
 	VOID SaveHookResult(HOOK_TYPE type, const wchar_t* pModulePath, const wchar_t* pFunc, LPVOID pHookedAddr, LPVOID lpRecoverAddr);
 
@@ -333,7 +337,7 @@ private:
 
 	BOOL SuspendAllThreads(DWORD dwProcessId, DWORD* pThreadCount, HANDLE szThreadHandle[MAX_SUSPEND_THREAD]);
 	BOOL ResumeAllThreads(DWORD dwProcessId, DWORD dwThreadCount, HANDLE szThreadHandle[MAX_SUSPEND_THREAD]);
-
+	BOOL IsFuncInCodeSection(PMODULE_INFO, UINT64);
 private:
 	BOOL m_bIsWow64;
 
