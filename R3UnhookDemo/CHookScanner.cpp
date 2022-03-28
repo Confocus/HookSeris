@@ -1396,24 +1396,28 @@ BOOL CHookScanner::ScanModuleEATHook32Inner(PMODULE_INFO pModuleInfo, LPVOID pDl
 	dwNoNameCount = pExportTable->NumberOfFunctions - pExportTable->NumberOfNames;
 
 	//AddressOfFunctions的无名导出函数是排在前几个的。
-	for (int i = 0; i < dwNoNameCount; i++)
+	//todo：处理无名导出函数
+	/*for (int i = 0; i < dwNoNameCount; i++)
 	{
 		if (pSimulateExportFuncAddr[i] != pExportFuncAddr[i])
 		{
 			SaveHookResult(HOOK_TYPE::EATHook, pModuleInfo->szModulePath, L"No Name", (LPVOID)&pExportFuncAddr[i], (LPVOID)&pSimulateExportFuncAddr[i]);
 			printf("EAT Hook found.\n");
 		}
-	}
+	}*/
 
 	for (int i = 0; i < pExportTable->NumberOfNames; i++)
 	{
 		wOrdinal = pOrdinalAddr[i];
 		char* pName = (char*)pModuleInfo->pDllBakupBaseAddr + pExportFuncName[i];
+		if (strcmp(pName, "DefWindowProcW") == 0)
+		{
+			printf("");
+		}
 		char* pSimName = (char*)pDllMemoryBuffer + pSimulateExportFuncName[i];
 		/*char* pFunc = (char*)pModuleInfo->pDllBaseAddr + pExportFuncAddr[wOrdinal];
 		char* pSimFunc = (char*)pDllMemoryBuffer + pSimulateExportFuncAddr[wOrdinal];*/
 
-		//todo：未解决redirection的问题
 		/*printf("ori name:%s		", pName);
 		printf("0x%016I64X\n", pFunc);
 		printf("0x%016I64X\n", pExportFuncAddr[wOrdinal]);
@@ -1421,10 +1425,11 @@ BOOL CHookScanner::ScanModuleEATHook32Inner(PMODULE_INFO pModuleInfo, LPVOID pDl
 		printf("0x%016I64X\n", pSimFunc);
 		printf("0x%016I64X\n\n", pSimulateExportFuncAddr[wOrdinal]);*/
 
-		if (pSimulateExportFuncAddr[i] != pExportFuncAddr[i])
+		//todo：未解决redirection的问题
+		if (pSimulateExportFuncAddr[wOrdinal] != pExportFuncAddr[wOrdinal])
 		{
 			wchar_t* wpName = ConvertCharToWchar(pName);
-			SaveHookResult(HOOK_TYPE::EATHook, pModuleInfo->szModulePath, wpName, (LPVOID)&pExportFuncAddr[i], (LPVOID)&pSimulateExportFuncAddr[i]);
+			SaveHookResult(HOOK_TYPE::EATHook, pModuleInfo->szModulePath, wpName, (LPVOID)&pExportFuncAddr[wOrdinal], (LPVOID)&pSimulateExportFuncAddr[wOrdinal]);
 			FreeConvertedWchar(wpName);
 
 			printf("EAT Hook found.\n");
@@ -1457,14 +1462,14 @@ BOOL CHookScanner::ScanModuleEATHook64Inner(PMODULE_INFO pModuleInfo, LPVOID pDl
 	dwNoNameCount = pExportTable->NumberOfFunctions - pExportTable->NumberOfNames;
 
 	//AddressOfFunctions的无名导出函数是排在前几个的。
-	for (int i = 0; i < dwNoNameCount; i++)
+	/*for (int i = 0; i < dwNoNameCount; i++)
 	{
 		if (pSimulateExportFuncAddr[i] != pExportFuncAddr[i])
 		{
 			SaveHookResult(HOOK_TYPE::EATHook, pModuleInfo->szModulePath, L"No Name", (LPVOID)&pExportFuncAddr[i], (LPVOID)&pSimulateExportFuncAddr[i]);
 			printf("EAT Hook found.\n");
 		}
-	}
+	}*/
 
 	for (int i = 0; i < pExportTable->NumberOfNames; i++)
 	{
@@ -1482,10 +1487,10 @@ BOOL CHookScanner::ScanModuleEATHook64Inner(PMODULE_INFO pModuleInfo, LPVOID pDl
 		//printf("0x%016I64X\n", pSimFunc);
 		//printf("0x%016I64X\n\n", pSimulateExportFuncAddr[wOrdinal]);
 
-		if (pSimulateExportFuncAddr[i] != pExportFuncAddr[i])
+		if (pSimulateExportFuncAddr[wOrdinal] != pExportFuncAddr[wOrdinal])
 		{
 			wchar_t* wpName = ConvertCharToWchar(pName);
-			SaveHookResult(HOOK_TYPE::EATHook, pModuleInfo->szModulePath, wpName, (LPVOID)&pExportFuncAddr[wOrdinal], (LPVOID)&pSimulateExportFuncAddr[i]);
+			SaveHookResult(HOOK_TYPE::EATHook, pModuleInfo->szModulePath, wpName, (LPVOID)&pExportFuncAddr[wOrdinal], (LPVOID)&pSimulateExportFuncAddr[wOrdinal]);
 			FreeConvertedWchar(wpName);
 
 			printf("EAT Hook found.\n");
@@ -2325,7 +2330,6 @@ VOID CHookScanner::SaveHookResult(HOOK_TYPE type, const wchar_t* pModulePath, co
 	memset((void*)HookResult.szModule, 0, sizeof(wchar_t) * MAX_MODULE_PATH_LEN);
 	if (pModulePath)
 	{
-		int n = wcslen(pModulePath);
 		wcscpy_s((wchar_t*)HookResult.szModule, wcslen(pModulePath) + 1, (wchar_t*)pModulePath);
 	}
 
@@ -2333,7 +2337,6 @@ VOID CHookScanner::SaveHookResult(HOOK_TYPE type, const wchar_t* pModulePath, co
 	if (pFunc)
 	{
 		wcscpy_s((wchar_t*)HookResult.szFuncName, wcslen(pFunc) + 1, (wchar_t*)pFunc);
-
 	}
 
 	wcscpy_s((wchar_t*)HookResult.szProcess, wcslen(m_pScannedProcess->szProcessName) + 1, (wchar_t*)m_pScannedProcess->szProcessName);
