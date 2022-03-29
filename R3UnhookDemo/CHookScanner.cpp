@@ -1410,10 +1410,6 @@ BOOL CHookScanner::ScanModuleEATHook32Inner(PMODULE_INFO pModuleInfo, LPVOID pDl
 	{
 		wOrdinal = pOrdinalAddr[i];
 		char* pName = (char*)pModuleInfo->pDllBakupBaseAddr + pExportFuncName[i];
-		if (strcmp(pName, "DefWindowProcW") == 0)
-		{
-			printf("");
-		}
 		char* pSimName = (char*)pDllMemoryBuffer + pSimulateExportFuncName[i];
 		/*char* pFunc = (char*)pModuleInfo->pDllBaseAddr + pExportFuncAddr[wOrdinal];
 		char* pSimFunc = (char*)pDllMemoryBuffer + pSimulateExportFuncAddr[wOrdinal];*/
@@ -1453,12 +1449,12 @@ BOOL CHookScanner::ScanModuleEATHook64Inner(PMODULE_INFO pModuleInfo, LPVOID pDl
 	DWORD dwNoNameCount = 0;
 
 	pSimulateExportTable = (PIMAGE_EXPORT_DIRECTORY)((BYTE*)pDllMemoryBuffer + m_OriginDLLInfo.dwExportDirRVA);
-	pExportTable = (PIMAGE_EXPORT_DIRECTORY)((BYTE*)pModuleInfo->pDllBaseAddr + m_OriginDLLInfo.dwExportDirRVA);
+	pExportTable = (PIMAGE_EXPORT_DIRECTORY)((BYTE*)pModuleInfo->pDllBakupBaseAddr + m_OriginDLLInfo.dwExportDirRVA);
 	pSimulateExportFuncAddr = (DWORD*)((BYTE*)pDllMemoryBuffer + pExportTable->AddressOfFunctions);
-	pExportFuncAddr = (DWORD*)((BYTE*)pModuleInfo->pDllBaseAddr + pExportTable->AddressOfFunctions);
+	pExportFuncAddr = (DWORD*)((BYTE*)pModuleInfo->pDllBakupBaseAddr + pExportTable->AddressOfFunctions);
 	pSimulateExportFuncName = (DWORD*)((BYTE*)pDllMemoryBuffer + pExportTable->AddressOfNames);
-	pExportFuncName = (DWORD*)((BYTE*)pModuleInfo->pDllBaseAddr + pExportTable->AddressOfNames);
-	pOrdinalAddr = (WORD*)((BYTE*)pModuleInfo->pDllBaseAddr + pExportTable->AddressOfNameOrdinals);
+	pExportFuncName = (DWORD*)((BYTE*)pModuleInfo->pDllBakupBaseAddr + pExportTable->AddressOfNames);
+	pOrdinalAddr = (WORD*)((BYTE*)pModuleInfo->pDllBakupBaseAddr + pExportTable->AddressOfNameOrdinals);
 	dwNoNameCount = pExportTable->NumberOfFunctions - pExportTable->NumberOfNames;
 
 	//AddressOfFunctions的无名导出函数是排在前几个的。
@@ -1474,7 +1470,7 @@ BOOL CHookScanner::ScanModuleEATHook64Inner(PMODULE_INFO pModuleInfo, LPVOID pDl
 	for (int i = 0; i < pExportTable->NumberOfNames; i++)
 	{
 		wOrdinal = pOrdinalAddr[i];
-		char* pName = (char*)pModuleInfo->pDllBaseAddr + pExportFuncName[i];
+		char* pName = (char*)pModuleInfo->pDllBakupBaseAddr + pExportFuncName[i];
 		char* pSimName = (char*)pDllMemoryBuffer + pSimulateExportFuncName[i];
 		/*char* pFunc = (char*)pModuleInfo->pDllBaseAddr + pExportFuncAddr[wOrdinal];
 		char* pSimFunc = (char*)pDllMemoryBuffer + pSimulateExportFuncAddr[wOrdinal];*/
@@ -1695,7 +1691,6 @@ BOOL CHookScanner::ScanModule64InlineHook(PMODULE_INFO pModuleInfo, LPVOID pDllM
 		LPVOID lpRedirectBackupBaseAddr = NULL;
 		std::wstring wsRedirectedDLLName;
 		pDLLName = (char*)pDllMemoryBuffer + pSimulateOriginImportTableVA->Name;
-		printf("Import DLL:%s\n", pDLLName);
 		PE_INFO ImportDLLInfo = { 0 };
 		wcsDLLName = ConvertCharToWchar(pDLLName);
 		wsRedirectedDLLName = RedirectDLLPath(wcsDLLName, pModuleInfo->szModuleName, NULL);
