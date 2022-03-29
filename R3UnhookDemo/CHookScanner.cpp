@@ -640,10 +640,10 @@ VOID CHookScanner::FixBaseReloc32Inner(LPVOID pBuffer, PPE_INFO pPeInfo, LPVOID 
 	DWORD dwBaseRelocTotalSize = 0;
 	LPVOID lpRelocVA = NULL;
 	PUSHORT pNextRelocOffset = NULL;
-	UINT32 uDiff = 0;
+	INT32 nDiff = 0;
 	PIMAGE_BASE_RELOCATION pBaseRelocBlock = NULL;
 
-	uDiff = (UINT32)lpDLLBase - (UINT32)lpImageBase;
+	nDiff = (UINT32)lpDLLBase - (UINT32)lpImageBase;
 	pBaseRelocBlock = (PIMAGE_BASE_RELOCATION)((UINT64)pBuffer + pPeInfo->dwRelocDirRVA);
 	dwBaseRelocTotalSize = pPeInfo->dwRelocDirSize;
 	pNextRelocOffset = (PUSHORT)((UINT64)pBaseRelocBlock + sizeof(IMAGE_BASE_RELOCATION));//指向一个重定位块中的偏移数据处
@@ -668,7 +668,7 @@ VOID CHookScanner::FixBaseReloc32Inner(LPVOID pBuffer, PPE_INFO pPeInfo, LPVOID 
 		lpRelocVA = (LPVOID)((UINT64)pBuffer + (UINT64)pBaseRelocBlock->VirtualAddress);//指向了一个4K的页，需要重定位的数据
 		for (int i = 0; i < dwBaseRelocCount; i++)
 		{
-			FixBaseRelocBlock(lpRelocVA, pNextRelocOffset, uDiff);
+			FixBaseRelocBlock(lpRelocVA, pNextRelocOffset, nDiff);
 			pNextRelocOffset++;
 		}
 
@@ -684,10 +684,10 @@ VOID CHookScanner::FixBaseReloc64Inner(LPVOID pBuffer, PPE_INFO pPeInfo, LPVOID 
 	DWORD dwBaseRelocTotalSize = 0;
 	LPVOID lpRelocVA = NULL;
 	PUSHORT pNextRelocOffset = NULL;
-	INT64 uDiff = 0;
+	INT64 nDiff = 0;
 	PIMAGE_BASE_RELOCATION pBaseRelocBlock = NULL;
 
-	uDiff = (UINT64)lpDLLBase - (UINT64)lpImageBase;
+	nDiff = (UINT64)lpDLLBase - (UINT64)lpImageBase;
 	pBaseRelocBlock = (PIMAGE_BASE_RELOCATION)((UINT64)pBuffer + pPeInfo->dwRelocDirRVA);
 	dwBaseRelocTotalSize = pPeInfo->dwRelocDirSize;
 	pNextRelocOffset = (PUSHORT)((UINT64)pBaseRelocBlock + sizeof(IMAGE_BASE_RELOCATION));//指向一个重定位块中的偏移数据处
@@ -712,7 +712,7 @@ VOID CHookScanner::FixBaseReloc64Inner(LPVOID pBuffer, PPE_INFO pPeInfo, LPVOID 
 		lpRelocVA = (LPVOID)((UINT64)pBuffer + (UINT64)pBaseRelocBlock->VirtualAddress);//指向了一个4K的页，需要重定位的数据
 		for (int i = 0; i < dwBaseRelocCount; i++)
 		{
-			FixBaseRelocBlock(lpRelocVA, pNextRelocOffset, uDiff);
+			FixBaseRelocBlock(lpRelocVA, pNextRelocOffset, nDiff);
 			pNextRelocOffset++;
 		}
 
@@ -723,7 +723,7 @@ VOID CHookScanner::FixBaseReloc64Inner(LPVOID pBuffer, PPE_INFO pPeInfo, LPVOID 
 	return;
 }
 
-BOOL CHookScanner::FixBaseRelocBlock(LPVOID lpRelocVA, PUSHORT pNextRelocOffset, UINT64 uDiff)
+BOOL CHookScanner::FixBaseRelocBlock(LPVOID lpRelocVA, PUSHORT pNextRelocOffset, INT64 nDiff)
 {
 	LPVOID lpUnFixedAddr = NULL;
 	WORD wOffset = *(pNextRelocOffset) & 0x0FFF;
@@ -733,7 +733,7 @@ BOOL CHookScanner::FixBaseRelocBlock(LPVOID lpRelocVA, PUSHORT pNextRelocOffset,
 	{
 	case IMAGE_REL_BASED_HIGHLOW:
 	{
-		*(LONG UNALIGNED*)lpUnFixedAddr += (ULONG)uDiff;
+		*(ULONG UNALIGNED*)lpUnFixedAddr += (INT32)nDiff;
 		break;
 	}
 	case IMAGE_REL_BASED_HIGH:
@@ -758,7 +758,7 @@ BOOL CHookScanner::FixBaseRelocBlock(LPVOID lpRelocVA, PUSHORT pNextRelocOffset,
 	}
 	case IMAGE_REL_BASED_DIR64:
 	{
-		*(ULONGLONG UNALIGNED*)lpUnFixedAddr += uDiff;
+		*(ULONGLONG UNALIGNED*)lpUnFixedAddr += nDiff;
 		//*((PINT64)lpUnFixedAddr) += uDiff;
 		break;
 	}

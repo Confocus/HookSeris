@@ -236,6 +236,12 @@ private:
 
 	VOID FixBaseReloc64Inner(LPVOID pBuffer, PPE_INFO pPeInfo, LPVOID lpDLLBase, LPVOID lpImageBase);
 	VOID FixBaseReloc32Inner(LPVOID pBuffer, PPE_INFO pPeInfo, LPVOID lpDLLBase, LPVOID lpImageBase);
+	/**
+	* 重定位段是一个数组，每个成员表示待修复的一块内容，这里修复其中的一块数据
+	*
+	* @return
+	*/
+	BOOL FixBaseRelocBlock(LPVOID, PUSHORT, INT64);
 
 	/**
 	* 构建在内存中模拟的DLL的导入表
@@ -252,14 +258,6 @@ private:
 	VOID SetSimFunctionZero(LPVOID pDllMemoryBuffer, PIMAGE_IMPORT_DESCRIPTOR pSimulateOriginImportTableVA);
 	LPVOID FindBackupBaseAddrByName(const wchar_t* pName);
 	LPVOID FindBaseAddrByName(const wchar_t* pName);
-
-
-	/**
-	* 重定位段是一个数组，每个成员表示待修复的一块内容，这里修复其中的一块数据
-	*
-	* @return
-	*/
-	BOOL FixBaseRelocBlock(LPVOID, PUSHORT, UINT64);
 
 	BOOL EnableDebugPrivelege();
 
