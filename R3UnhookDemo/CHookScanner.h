@@ -259,7 +259,7 @@ private:
 	*
 	* @return
 	*/
-	BOOL FixBaseRelocBlock(LPVOID, LPVOID);
+	BOOL FixBaseRelocBlock(LPVOID, PUSHORT, UINT64);
 
 	BOOL EnableDebugPrivelege();
 

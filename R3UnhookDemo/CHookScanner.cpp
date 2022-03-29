@@ -451,7 +451,7 @@ LPVOID CHookScanner::SimulateLoadDLL(PMODULE_INFO pModuleInfo)
 	LPVOID pDllImageBuffer = NULL;//DLL磁盘上的样子
 	LPVOID pDllMemoryBuffer = NULL;//DLL模拟载入内存中的样子
 	PE_INFO PEImageInfo = { 0 };
-
+	
 	do 
 	{
 		hFile = CreateFile(pModuleInfo->szModulePath, GENERIC_READ, FILE_SHARE_READ, 0, OPEN_EXISTING, 0, 0);
@@ -635,101 +635,6 @@ BOOL CHookScanner::FixBaseReloc(const LPVOID pMemoryBuffer, const PPE_INFO const
 	return TRUE;
 }
 
-VOID CHookScanner::FixBaseReloc64Inner(LPVOID pBuffer, PPE_INFO pPeInfo, LPVOID lpDLLBase, LPVOID lpImageBase)
-{
-	DWORD dwBaseRelocTotalSize = 0;
-	LPVOID lpRelocVA = NULL;
-	PUSHORT pNextRelocOffset = NULL;
-	INT64 uDiff = 0;
-	PIMAGE_BASE_RELOCATION pBaseRelocBlock = NULL;
-
-	uDiff = (UINT64)lpDLLBase - (UINT64)lpImageBase;
-	pBaseRelocBlock = (PIMAGE_BASE_RELOCATION)((UINT64)pBuffer + pPeInfo->dwRelocDirRVA);
-	dwBaseRelocTotalSize = pPeInfo->dwRelocDirSize;
-	pNextRelocOffset = (PUSHORT)((UINT64)pBaseRelocBlock + sizeof(IMAGE_BASE_RELOCATION));//指向一个重定位块中的偏移数据处
-	if (NULL == pBaseRelocBlock || 0 == dwBaseRelocTotalSize)
-	{
-		return;
-	}
-
-	//遍历重定位块
-	while (dwBaseRelocTotalSize)
-	{
-		DWORD dwBaseRelocBlockSize = 0;
-		DWORD dwBaseRelocCount = 0;
-
-		//余下的数据
-		dwBaseRelocTotalSize -= pBaseRelocBlock->SizeOfBlock;
-
-		//本次遍历需要重定位的数据
-		dwBaseRelocBlockSize = pBaseRelocBlock->SizeOfBlock - sizeof(IMAGE_BASE_RELOCATION);
-		dwBaseRelocCount = dwBaseRelocBlockSize / sizeof(USHORT);//需要重定位的数据有多少个
-
-		lpRelocVA = (LPVOID)((UINT64)pBuffer + (UINT64)pBaseRelocBlock->VirtualAddress);//指向了一个4K的页，需要重定位的数据
-		for (int i = 0; i < dwBaseRelocCount; i++)
-		{
-			LPVOID lpRelocAddr = NULL;
-			LPVOID lpUnFixedAddr = NULL;
-			WORD wOffset = *(pNextRelocOffset) & 0x0FFF;
-			lpUnFixedAddr = (LPVOID)((UINT64)lpRelocVA + wOffset);
-			*((PINT64)lpUnFixedAddr) += uDiff;
-
-			//todo：这些选项有待完善
-			switch (*(pNextRelocOffset) >> 12)
-			{
-			case IMAGE_REL_BASED_HIGHLOW:
-			{
-				printf("");
-				break;
-			}
-			case IMAGE_REL_BASED_HIGH:
-			{
-				printf("");
-				break;
-			}
-			case IMAGE_REL_BASED_HIGHADJ:
-			{
-				printf("");
-				break;
-			}
-			case IMAGE_REL_BASED_LOW:
-			{
-				printf("");
-				break;
-			}
-			case IMAGE_REL_BASED_IA64_IMM64:
-			{
-				printf("");
-				break;
-			}
-			case IMAGE_REL_BASED_DIR64:
-			{
-				printf("");
-				break;
-			}
-			case IMAGE_REL_BASED_MIPS_JMPADDR:
-			{
-				printf("");
-				break;
-			}
-			case IMAGE_REL_BASED_ABSOLUTE:
-			{
-				printf("");
-				break;
-			}
-			default:
-				break;
-			}
-			pNextRelocOffset++;
-		}
-
-		pBaseRelocBlock = (PIMAGE_BASE_RELOCATION)((UINT64)pBaseRelocBlock + pBaseRelocBlock->SizeOfBlock);
-		pNextRelocOffset = (PUSHORT)((UINT64)pBaseRelocBlock + sizeof(IMAGE_BASE_RELOCATION));//指向一个重定位块中的偏移数据处
-	}
-
-	return;
-}
-
 VOID CHookScanner::FixBaseReloc32Inner(LPVOID pBuffer, PPE_INFO pPeInfo, LPVOID lpDLLBase, LPVOID lpImageBase)
 {
 	DWORD dwBaseRelocTotalSize = 0;
@@ -763,58 +668,7 @@ VOID CHookScanner::FixBaseReloc32Inner(LPVOID pBuffer, PPE_INFO pPeInfo, LPVOID 
 		lpRelocVA = (LPVOID)((UINT64)pBuffer + (UINT64)pBaseRelocBlock->VirtualAddress);//指向了一个4K的页，需要重定位的数据
 		for (int i = 0; i < dwBaseRelocCount; i++)
 		{
-			LPVOID lpRelocAddr = NULL;
-			LPVOID lpUnFixedAddr = NULL;
-			WORD wOffset = *(pNextRelocOffset) & 0x0FFF;
-			lpUnFixedAddr = (LPVOID)((UINT64)lpRelocVA + wOffset);
-
-			//todo：这些选项有待完善
-			switch (*(pNextRelocOffset) >> 12)
-			{
-			case IMAGE_REL_BASED_HIGHLOW:
-			{
-				*(LONG UNALIGNED*)lpUnFixedAddr += (ULONG)uDiff;
-				printf("");
-				break;
-			}
-			case IMAGE_REL_BASED_HIGH:
-			{
-				printf("");
-				break;
-			}
-			case IMAGE_REL_BASED_HIGHADJ:
-			{
-				printf("");
-				break;
-			}
-			case IMAGE_REL_BASED_LOW:
-			{
-				printf("");
-				break;
-			}
-			case IMAGE_REL_BASED_IA64_IMM64:
-			{
-				printf("");
-				break;
-			}
-			case IMAGE_REL_BASED_DIR64:
-			{
-				printf("");
-				break;
-			}
-			case IMAGE_REL_BASED_MIPS_JMPADDR:
-			{
-				printf("");
-				break;
-			}
-			case IMAGE_REL_BASED_ABSOLUTE:
-			{
-				printf("");
-				break;
-			}
-			default:
-				break;
-			}
+			FixBaseRelocBlock(lpRelocVA, pNextRelocOffset, uDiff);
 			pNextRelocOffset++;
 		}
 
@@ -823,6 +677,105 @@ VOID CHookScanner::FixBaseReloc32Inner(LPVOID pBuffer, PPE_INFO pPeInfo, LPVOID 
 	}
 
 	return;
+}
+
+VOID CHookScanner::FixBaseReloc64Inner(LPVOID pBuffer, PPE_INFO pPeInfo, LPVOID lpDLLBase, LPVOID lpImageBase)
+{
+	DWORD dwBaseRelocTotalSize = 0;
+	LPVOID lpRelocVA = NULL;
+	PUSHORT pNextRelocOffset = NULL;
+	INT64 uDiff = 0;
+	PIMAGE_BASE_RELOCATION pBaseRelocBlock = NULL;
+
+	uDiff = (UINT64)lpDLLBase - (UINT64)lpImageBase;
+	pBaseRelocBlock = (PIMAGE_BASE_RELOCATION)((UINT64)pBuffer + pPeInfo->dwRelocDirRVA);
+	dwBaseRelocTotalSize = pPeInfo->dwRelocDirSize;
+	pNextRelocOffset = (PUSHORT)((UINT64)pBaseRelocBlock + sizeof(IMAGE_BASE_RELOCATION));//指向一个重定位块中的偏移数据处
+	if (NULL == pBaseRelocBlock || 0 == dwBaseRelocTotalSize)
+	{
+		return;
+	}
+
+	//遍历重定位块
+	while (dwBaseRelocTotalSize)
+	{
+		DWORD dwBaseRelocBlockSize = 0;
+		DWORD dwBaseRelocCount = 0;
+
+		//余下的数据
+		dwBaseRelocTotalSize -= pBaseRelocBlock->SizeOfBlock;
+
+		//本次遍历需要重定位的数据
+		dwBaseRelocBlockSize = pBaseRelocBlock->SizeOfBlock - sizeof(IMAGE_BASE_RELOCATION);
+		dwBaseRelocCount = dwBaseRelocBlockSize / sizeof(USHORT);//需要重定位的数据有多少个
+
+		lpRelocVA = (LPVOID)((UINT64)pBuffer + (UINT64)pBaseRelocBlock->VirtualAddress);//指向了一个4K的页，需要重定位的数据
+		for (int i = 0; i < dwBaseRelocCount; i++)
+		{
+			FixBaseRelocBlock(lpRelocVA, pNextRelocOffset, uDiff);
+			pNextRelocOffset++;
+		}
+
+		pBaseRelocBlock = (PIMAGE_BASE_RELOCATION)((UINT64)pBaseRelocBlock + pBaseRelocBlock->SizeOfBlock);
+		pNextRelocOffset = (PUSHORT)((UINT64)pBaseRelocBlock + sizeof(IMAGE_BASE_RELOCATION));//指向一个重定位块中的偏移数据处
+	}
+
+	return;
+}
+
+BOOL CHookScanner::FixBaseRelocBlock(LPVOID lpRelocVA, PUSHORT pNextRelocOffset, UINT64 uDiff)
+{
+	LPVOID lpUnFixedAddr = NULL;
+	WORD wOffset = *(pNextRelocOffset) & 0x0FFF;
+	lpUnFixedAddr = (LPVOID)((UINT64)lpRelocVA + wOffset);
+	//todo：这些选项有待完善
+	switch (*(pNextRelocOffset) >> 12)
+	{
+	case IMAGE_REL_BASED_HIGHLOW:
+	{
+		*(LONG UNALIGNED*)lpUnFixedAddr += (ULONG)uDiff;
+		break;
+	}
+	case IMAGE_REL_BASED_HIGH:
+	{
+		printf("");
+		break;
+	}
+	case IMAGE_REL_BASED_HIGHADJ:
+	{
+		printf("");
+		break;
+	}
+	case IMAGE_REL_BASED_LOW:
+	{
+		printf("");
+		break;
+	}
+	case IMAGE_REL_BASED_IA64_IMM64:
+	{
+		printf("");
+		break;
+	}
+	case IMAGE_REL_BASED_DIR64:
+	{
+		*(ULONGLONG UNALIGNED*)lpUnFixedAddr += uDiff;
+		//*((PINT64)lpUnFixedAddr) += uDiff;
+		break;
+	}
+	case IMAGE_REL_BASED_MIPS_JMPADDR:
+	{
+		printf("");
+		break;
+	}
+	case IMAGE_REL_BASED_ABSOLUTE:
+	{
+		break;
+	}
+	default:
+		break;
+	}
+
+	return TRUE;
 }
 
 BOOL CHookScanner::BuildImportTable(const LPVOID pDllMemoryBuffer, const PPE_INFO pPeInfo, const PMODULE_INFO pModuleInfo)
@@ -1035,9 +988,10 @@ BOOL CHookScanner::BuildImportTable64Inner(LPVOID pDllMemoryBuffer, PPE_INFO pPe
 			pSimulateOriginImportTableVA->FirstThunk);
 		pSimulateOriginFirstThunk = (PIMAGE_THUNK_DATA64)((BYTE*)pDllMemoryBuffer +
 			pSimulateOriginImportTableVA->OriginalFirstThunk);
-
+		int j = 0;
 		while (pSimulateFirstThunk->u1.Function)
 		{
+			j++;
 			LPVOID ExportAddr = NULL;
 			LPVOID lpFinalBase = NULL;
 
@@ -1053,7 +1007,6 @@ BOOL CHookScanner::BuildImportTable64Inner(LPVOID pDllMemoryBuffer, PPE_INFO pPe
 				wchar_t* wcsFuncName = NULL;
 				pName = (PIMAGE_IMPORT_BY_NAME)((BYTE*)pDllMemoryBuffer + pSimulateOriginFirstThunk->u1.AddressOfData);
 				wcsFuncName = ConvertCharToWchar(pName->Name);
-
 				ExportAddr = GetExportFuncAddrByName(lpBackupBaseAddr, &ImportDLLInfo, wcsFuncName, pModuleInfo->szModuleName, wsRedirectedDLLName.c_str(), &lpFinalBase);
 				if (!lpFinalBase)
 				{
@@ -1121,11 +1074,6 @@ LPVOID CHookScanner::FindBaseAddrByName(const wchar_t* pName)
 	}
 
 	return NULL;
-}
-
-BOOL CHookScanner::FixBaseRelocBlock(LPVOID, LPVOID)
-{
-	return TRUE;
 }
 
 BOOL CHookScanner::EnableDebugPrivelege()
@@ -1297,8 +1245,10 @@ BOOL CHookScanner::ScanModule64IATHookInner(PMODULE_INFO pModuleInfo, LPVOID pDl
 			pSimulateOriginFirstThunk = (PIMAGE_THUNK_DATA64)((BYTE*)pDllMemoryBuffer +
 				pOriginImportTableVA->OriginalFirstThunk);
 
+			int j = 0;
 			while (pFirstThunk->u1.Function)
 			{
+				j++;
 				BOOL bNoNameFunc = FALSE;
 				if (pOriginFirstThunk->u1.Ordinal & IMAGE_ORDINAL_FLAG64)//无名函数的情况，靠Ordinal
 				{
