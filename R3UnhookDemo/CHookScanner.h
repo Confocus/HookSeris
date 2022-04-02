@@ -255,6 +255,7 @@ private:
 	BOOL BuildImportTable32Inner(LPVOID pBuffer, PPE_INFO pPeInfo, PMODULE_INFO pModuleInfo);
 	BOOL BuildImportTable64Inner(LPVOID pBuffer, PPE_INFO pPeInfo, PMODULE_INFO pModuleInfo);
 
+	template <typename TIMAGE_THUNK_DATA>
 	VOID SetSimFunctionZero(LPVOID pDllMemoryBuffer, PIMAGE_IMPORT_DESCRIPTOR pSimulateOriginImportTableVA);
 	LPVOID FindBackupBaseAddrByName(const wchar_t* pName);
 	LPVOID FindBaseAddrByName(const wchar_t* pName);

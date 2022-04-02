@@ -826,7 +826,6 @@ BOOL CHookScanner::BuildImportTable(const LPVOID pDllMemoryBuffer, const PPE_INF
 
 BOOL CHookScanner::BuildImportTable32Inner(LPVOID pDllMemoryBuffer, PPE_INFO pPeInfo, PMODULE_INFO pModuleInfo)
 {
-	BOOL bRet = TRUE;
 	WORD wOrdinal = 0;
 	DWORD dwImportTableCount = 0;
 	DWORD dwOriginImportTableSize = pPeInfo->dwImportDirSize;
@@ -869,9 +868,8 @@ BOOL CHookScanner::BuildImportTable32Inner(LPVOID pDllMemoryBuffer, PPE_INFO pPe
 		{
 			FreeConvertedWchar(wcsDLLName);
 			//如果解析失败则导入表数据清零，表示无法判断是否是挂了钩子
-			SetSimFunctionZero(pDllMemoryBuffer, pSimulateOriginImportTableVA);
+			SetSimFunctionZero<PIMAGE_THUNK_DATA32>(pDllMemoryBuffer, pSimulateOriginImportTableVA);
 			pSimulateOriginImportTableVA++;
-			bRet = FALSE;
 			continue;
 		}
 
@@ -879,9 +877,8 @@ BOOL CHookScanner::BuildImportTable32Inner(LPVOID pDllMemoryBuffer, PPE_INFO pPe
 		{
 			//如果解析失败则导入表数据清零，表示无法判断是否是挂了钩子
 			FreeConvertedWchar(wcsDLLName);
-			SetSimFunctionZero(pDllMemoryBuffer, pSimulateOriginImportTableVA);
+			SetSimFunctionZero<PIMAGE_THUNK_DATA32>(pDllMemoryBuffer, pSimulateOriginImportTableVA);
 			pSimulateOriginImportTableVA++;
-			bRet = FALSE;
 			continue;
 			//return FALSE;
 		}
@@ -925,7 +922,7 @@ BOOL CHookScanner::BuildImportTable32Inner(LPVOID pDllMemoryBuffer, PPE_INFO pPe
 		pSimulateOriginImportTableVA++;
 	}
 
-	return bRet;
+	return TRUE;
 }
 
 BOOL CHookScanner::BuildImportTable64Inner(LPVOID pDllMemoryBuffer, PPE_INFO pPeInfo, PMODULE_INFO pModuleInfo)
@@ -947,6 +944,7 @@ BOOL CHookScanner::BuildImportTable64Inner(LPVOID pDllMemoryBuffer, PPE_INFO pPe
 	pSimulateOriginImportTableVA = (PIMAGE_IMPORT_DESCRIPTOR)((BYTE*)pDllMemoryBuffer + pPeInfo->dwImportDirRVA);
 	dwImportTableCount = pPeInfo->dwImportDirSize / sizeof(IMAGE_IMPORT_DESCRIPTOR);//相当于获取DLL的个数
 
+	//todo：修复导入表是winspool.drv的情况——rdpclip.exe
 	//遍历要修复的DLL所依赖的DLL
 	for (int i = 0; i < dwImportTableCount && pSimulateOriginImportTableVA->Name; i++)
 	{
@@ -975,13 +973,17 @@ BOOL CHookScanner::BuildImportTable64Inner(LPVOID pDllMemoryBuffer, PPE_INFO pPe
 		if (!lpBackupBaseAddr || !lpBaseAddr)
 		{
 			FreeConvertedWchar(wcsDLLName);
-			return FALSE;
+			SetSimFunctionZero<PIMAGE_THUNK_DATA64>(pDllMemoryBuffer, pSimulateOriginImportTableVA);
+			pSimulateOriginImportTableVA++;
+			continue;
 		}
 
 		if (!AnalyzePEInfo(lpBackupBaseAddr, &ImportDLLInfo))
 		{
 			FreeConvertedWchar(wcsDLLName);
-			return FALSE;
+			SetSimFunctionZero<PIMAGE_THUNK_DATA64>(pDllMemoryBuffer, pSimulateOriginImportTableVA);
+			pSimulateOriginImportTableVA++;
+			continue;
 		}
 
 		pSimulateFirstThunk = (PIMAGE_THUNK_DATA64)((BYTE*)pDllMemoryBuffer +
@@ -1029,12 +1031,12 @@ BOOL CHookScanner::BuildImportTable64Inner(LPVOID pDllMemoryBuffer, PPE_INFO pPe
 	return TRUE;
 }
 
+template <typename TIMAGE_THUNK_DATA>
 VOID CHookScanner::SetSimFunctionZero(LPVOID pDllMemoryBuffer, PIMAGE_IMPORT_DESCRIPTOR pSimulateOriginImportTableVA)
 {
-	PIMAGE_THUNK_DATA32 pSimulateFirstThunk = NULL;
-	PIMAGE_THUNK_DATA32 pSimulateOriginFirstThunk = NULL;
+	TIMAGE_THUNK_DATA pSimulateFirstThunk = NULL;
 
-	pSimulateFirstThunk = (PIMAGE_THUNK_DATA32)((BYTE*)pDllMemoryBuffer +
+	pSimulateFirstThunk = (TIMAGE_THUNK_DATA)((BYTE*)pDllMemoryBuffer +
 		pSimulateOriginImportTableVA->FirstThunk);
 	
 	while (pSimulateFirstThunk->u1.Function)
@@ -1703,7 +1705,6 @@ BOOL CHookScanner::ScanModule64InlineHook(PMODULE_INFO pModuleInfo, LPVOID pDllM
 				{
 					lpFinalBase = lpBaseAddr;
 				}
-				FreeConvertedWchar(wcsFuncName);
 			}
 
 			BOOL bIsFuncCodeSection = FALSE;
@@ -1733,7 +1734,6 @@ BOOL CHookScanner::ScanModule64InlineHook(PMODULE_INFO pModuleInfo, LPVOID pDllM
 				SaveHookResult(HOOK_TYPE::InlineHook, pModuleInfo->szModulePath, wcsFuncName, (BYTE*)lpFinalBase + (UINT64)ExportAddr, (BYTE*)lpSimDLLBase + (UINT64)ExportAddr);
 				printf("IAT Inlie Hook.\n");
 			}
-
 			FreeConvertedWchar(wcsFuncName);
 			//2、遍历其导出表
 			pSimulateOriginFirstThunk++;

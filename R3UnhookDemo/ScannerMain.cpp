@@ -3,10 +3,13 @@
 
 void main()
 {
+	Sleep(10*1000);
+	//HMODULE hMod = LoadLibrary(L"shell32.dll");
 	CHookScanner R3APIHookScanner;
 	//R3APIHookScanner.ScanAllProcesses();
-	R3APIHookScanner.ScanProcessById(768);
+	R3APIHookScanner.ScanProcessById(656);
 	R3APIHookScanner.UnHook(1);
-	getchar();
+	//printf("xxx");
+	//getchar();
 	return;
 }
