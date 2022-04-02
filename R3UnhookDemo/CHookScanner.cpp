@@ -896,8 +896,7 @@ BOOL CHookScanner::BuildImportTable32Inner(LPVOID pDllMemoryBuffer, PPE_INFO pPe
 			if (pSimulateOriginFirstThunk->u1.Ordinal & IMAGE_ORDINAL_FLAG32)
 			{
 				wOrdinal = pSimulateFirstThunk->u1.Ordinal & 0xFFFF;
-				ExportAddr = GetExportFuncAddrByOrdinal(lpBackupBaseAddr, &ImportDLLInfo, wOrdinal);
-				lpFinalBase = lpBaseAddr;
+				ExportAddr = GetExportFuncAddrByOrdinal(lpBackupBaseAddr, &ImportDLLInfo, wOrdinal, pModuleInfo->szModuleName, wsRedirectedDLLName.c_str(), &lpFinalBase);
 			}
 			else
 			{
@@ -906,11 +905,12 @@ BOOL CHookScanner::BuildImportTable32Inner(LPVOID pDllMemoryBuffer, PPE_INFO pPe
 				wcsFuncName = ConvertCharToWchar(pName->Name);
 				//这里只能传递lpBackupBaseAddr，因为读不到真实地址。
 				ExportAddr = GetExportFuncAddrByName(lpBackupBaseAddr, &ImportDLLInfo, wcsFuncName, pModuleInfo->szModuleName, wsRedirectedDLLName.c_str(), &lpFinalBase);
-				if (!lpFinalBase)
-				{
-					lpFinalBase = lpBaseAddr;
-				}
 				FreeConvertedWchar(wcsFuncName);
+			}
+
+			if (!lpFinalBase)
+			{
+				lpFinalBase = lpBaseAddr;
 			}
 
 			pSimulateFirstThunk->u1.AddressOfData = (DWORD)ExportAddr + (DWORD)lpFinalBase;
@@ -1000,21 +1000,26 @@ BOOL CHookScanner::BuildImportTable64Inner(LPVOID pDllMemoryBuffer, PPE_INFO pPe
 			if (pSimulateOriginFirstThunk->u1.Ordinal & IMAGE_ORDINAL_FLAG64)//无名函数的情况，靠Ordinal
 			{
 				wOrdinal = pSimulateFirstThunk->u1.Ordinal & 0xFFFF;
-				ExportAddr = GetExportFuncAddrByOrdinal(lpBackupBaseAddr, &ImportDLLInfo, wOrdinal);
-				lpFinalBase = lpBaseAddr;
+				ExportAddr = GetExportFuncAddrByOrdinal(lpBackupBaseAddr, &ImportDLLInfo, wOrdinal, pModuleInfo->szModuleName, wsRedirectedDLLName.c_str(), &lpFinalBase);
 			}
 			else
 			{
 				//拿到导入函数名，根据导入函数名，去查对应的DLL的导出函数地址
 				wchar_t* wcsFuncName = NULL;
 				pName = (PIMAGE_IMPORT_BY_NAME)((BYTE*)pDllMemoryBuffer + pSimulateOriginFirstThunk->u1.AddressOfData);
-				wcsFuncName = ConvertCharToWchar(pName->Name);
-				ExportAddr = GetExportFuncAddrByName(lpBackupBaseAddr, &ImportDLLInfo, wcsFuncName, pModuleInfo->szModuleName, wsRedirectedDLLName.c_str(), &lpFinalBase);
-				if (!lpFinalBase)
+
+				if (_stricmp(pName->Name, "D3DKMTNetDispQueryMiracastDisplayDeviceSupport") == 0)
 				{
-					lpFinalBase = lpBaseAddr;
+					printf("");
 				}
+				wcsFuncName = ConvertCharToWchar(pName->Name);
+				ExportAddr = GetExportFuncAddrByName(lpBackupBaseAddr, &ImportDLLInfo, wcsFuncName, pModuleInfo->szModuleName, wsRedirectedDLLName.c_str(), &lpFinalBase);				
 				FreeConvertedWchar(wcsFuncName);
+			}
+
+			if (!lpFinalBase)
+			{
+				lpFinalBase = lpBaseAddr;
 			}
 
 			//3、将导出表的函数填充到导入表中
@@ -1268,7 +1273,7 @@ BOOL CHookScanner::ScanModule64IATHookInner(PMODULE_INFO pModuleInfo, LPVOID pDl
 					printf("%d. 0x%016I64X\n", j++, pSimulateFirstThunk->u1.Function);*/
 				}
 
-				if (pFirstThunk->u1.Function != pSimulateFirstThunk->u1.Function)
+				if ((pFirstThunk->u1.Function != pSimulateFirstThunk->u1.Function) && (0 != pSimulateFirstThunk->u1.Function))
 				{
 					if (!bNoNameFunc)
 					{
@@ -1557,8 +1562,7 @@ BOOL CHookScanner::ScanModule32InlineHook(PMODULE_INFO pModuleInfo, LPVOID pDllM
 			if (pSimulateOriginFirstThunk->u1.Ordinal & IMAGE_ORDINAL_FLAG32)//无名函数的情况，靠Ordinal
 			{
 				wOrdinal = pSimulateOriginFirstThunk->u1.Ordinal & 0xFFFF;
-				ExportAddr = GetExportFuncAddrByOrdinal(lpBackupBaseAddr, &ImportDLLInfo, wOrdinal);
-				lpBase = lpBaseAddr;
+				ExportAddr = GetExportFuncAddrByOrdinal(lpBackupBaseAddr, &ImportDLLInfo, wOrdinal, pModuleInfo->szModuleName, wsRedirectedDLLName.c_str(), &lpBase);
 			}
 			else
 			{
@@ -1566,10 +1570,11 @@ BOOL CHookScanner::ScanModule32InlineHook(PMODULE_INFO pModuleInfo, LPVOID pDllM
 				pName = (PIMAGE_IMPORT_BY_NAME)((BYTE*)pDllMemoryBuffer + pSimulateOriginFirstThunk->u1.AddressOfData);
 				wcsFuncName = ConvertCharToWchar(pName->Name);
 				ExportAddr = GetExportFuncAddrByName(lpBackupBaseAddr, &ImportDLLInfo, wcsFuncName, pModuleInfo->szModuleName, wsRedirectedDLLName.c_str(), &lpBase);
-				if (!lpBase)
-				{
-					lpBase = lpBaseAddr;
-				}
+			}
+
+			if (!lpBase)
+			{
+				lpBase = lpBaseAddr;
 			}
 
 			for (auto p : m_pScannedProcess->m_vecModuleInfo)
@@ -1621,8 +1626,6 @@ BOOL CHookScanner::ScanModule64InlineHook(PMODULE_INFO pModuleInfo, LPVOID pDllM
 	PIMAGE_IMPORT_DESCRIPTOR pSimulateOriginImportTableVA = NULL;
 	DWORD dwOriginImportTableSize = 0;
 	PIMAGE_IMPORT_BY_NAME pName = NULL;
-	/*PIMAGE_THUNK_DATA pFirstThunk = NULL;
-	PIMAGE_THUNK_DATA pOriginFirstThunk = NULL;*/
 	PIMAGE_IMPORT_BY_NAME pSimulateName = NULL;
 	PIMAGE_THUNK_DATA64 pSimulateFirstThunk = NULL;
 	PIMAGE_THUNK_DATA64 pSimulateOriginFirstThunk = NULL;
@@ -1692,8 +1695,7 @@ BOOL CHookScanner::ScanModule64InlineHook(PMODULE_INFO pModuleInfo, LPVOID pDllM
 			if (pSimulateOriginFirstThunk->u1.Ordinal & IMAGE_ORDINAL_FLAG64)//无名函数的情况，靠Ordinal
 			{
 				wOrdinal = pSimulateOriginFirstThunk->u1.Ordinal & 0xFFFF;
-				ExportAddr = GetExportFuncAddrByOrdinal(lpBackupBaseAddr, &ImportDLLInfo, wOrdinal);
-				lpFinalBase = lpBaseAddr;
+				ExportAddr = GetExportFuncAddrByOrdinal(lpBackupBaseAddr, &ImportDLLInfo, wOrdinal, pModuleInfo->szModuleName, wsRedirectedDLLName.c_str(), &lpFinalBase);
 			}
 			else
 			{
@@ -1701,10 +1703,11 @@ BOOL CHookScanner::ScanModule64InlineHook(PMODULE_INFO pModuleInfo, LPVOID pDllM
 				pName = (PIMAGE_IMPORT_BY_NAME)((BYTE*)pDllMemoryBuffer + pSimulateOriginFirstThunk->u1.AddressOfData);
 				wcsFuncName = ConvertCharToWchar(pName->Name);
 				ExportAddr = GetExportFuncAddrByName(lpBackupBaseAddr, &ImportDLLInfo, wcsFuncName, pModuleInfo->szModuleName, wsRedirectedDLLName.c_str(), &lpFinalBase);
-				if (!lpFinalBase)
-				{
-					lpFinalBase = lpBaseAddr;
-				}
+			}
+
+			if (!lpFinalBase)
+			{
+				lpFinalBase = lpBaseAddr;
 			}
 
 			BOOL bIsFuncCodeSection = FALSE;
@@ -1854,14 +1857,14 @@ LPVOID CHookScanner::GetWow64ExportFuncAddrByName(LPVOID pExportDLLBase, PPE_INF
 	return NULL;
 }
 
-LPVOID CHookScanner::GetExportFuncAddrByOrdinal(LPVOID pExportDLLBase, PPE_INFO pExportDLLInfo, WORD wOrdinal)
+LPVOID CHookScanner::GetExportFuncAddrByOrdinal(LPVOID pExportDLLBase, PPE_INFO pExportDLLInfo, WORD wOrdinal, const wchar_t* pBaseDLL, const wchar_t* pPreHostDLL, LPVOID* ppBase)
 {
 	CHECK_POINTER_NULL(pExportDLLBase, NULL);
 	CHECK_POINTER_NULL(pExportDLLInfo, NULL);
 
 	PIMAGE_EXPORT_DIRECTORY pExportTable = NULL;
 	DWORD dwExportSize = 0;
-
+	LPVOID lpExportFuncOffset = NULL;
 	if (pExportDLLInfo->dwExportDirSize > 0 && pExportDLLInfo->dwExportDirRVA > 0)
 	{
 		pExportTable = (PIMAGE_EXPORT_DIRECTORY)((BYTE*)pExportDLLBase + pExportDLLInfo->dwExportDirRVA);
@@ -1869,9 +1872,15 @@ LPVOID CHookScanner::GetExportFuncAddrByOrdinal(LPVOID pExportDLLBase, PPE_INFO 
 		DWORD* pFuncAddresses = (DWORD*)((BYTE*)pExportDLLBase + pExportTable->AddressOfFunctions);
 		WORD* pAddressOfNameOrdinals = (WORD*)((BYTE*)pExportDLLBase + pExportTable->AddressOfNameOrdinals);
 		DWORD* pFuncNames = (DWORD*)((BYTE*)pExportDLLBase + pExportTable->AddressOfNames);
+		lpExportFuncOffset = (LPVOID)pFuncAddresses[wOrdinal - pExportTable->Base];
+		if ((UINT64)lpExportFuncOffset > (UINT64)pExportDLLInfo->dwExportDirRVA &&
+			(UINT64)lpExportFuncOffset < (UINT64)pExportDLLInfo->dwExportDirRVA + (UINT64)pExportDLLInfo->dwExportDirSize)
+		{
+			//Ordinal也许要进行重定向
+			lpExportFuncOffset = RedirectionExportFuncAddr((char*)((UINT64)lpExportFuncOffset + (UINT64)pExportDLLBase), pBaseDLL, pPreHostDLL, ppBase);
+		}
 
-		//return (LPVOID)((UINT64)pExportDLLBase + (UINT64)pFuncAddresses[wOrdinal - pExportTable->Base]);
-		return (LPVOID)pFuncAddresses[wOrdinal - pExportTable->Base];
+		return lpExportFuncOffset;
 	}
 
 	return NULL;
@@ -2175,7 +2184,9 @@ BOOL CHookScanner::ProbeSxSRedirect(std::wstring& path)
 LPVOID CHookScanner::RedirectionExportFuncAddr(const char* lpExportFuncAddr, const wchar_t* pBaseDLL, const wchar_t* pPreHostDLL, LPVOID* ppBase)
 {
 	CHECK_POINTER_NULL(lpExportFuncAddr, FALSE);
+	BOOL bNameBase = TRUE;
 	BOOL bRebase = FALSE;
+	WORD wOrdinal = 0;
 	UINT uLen = 0;
 	char* ptr = NULL;
 	char* pDLLName = NULL;
@@ -2200,10 +2211,18 @@ LPVOID CHookScanner::RedirectionExportFuncAddr(const char* lpExportFuncAddr, con
 
 	*ptr = 0;
 	pDLLName = szFuncName;
-	pFuncName = ptr + 1;
-
 	wpDLLName = ConvertCharToWchar(pDLLName);
-	wpFuncName = ConvertCharToWchar(pFuncName);
+
+	if ('#' == *(ptr + 1))
+	{
+		wOrdinal = (WORD)strtoul((char*)(ptr + 2), 0, 10);
+		bNameBase = FALSE;
+	}
+	else
+	{
+		pFuncName = ptr + 1;
+		wpFuncName = ConvertCharToWchar(pFuncName);
+	}
 
 	wsRedirectedDLLName = RedirectDLLPath(wpDLLName, pBaseDLL, pPreHostDLL);
 	if (0 != wsRedirectedDLLName.size())
@@ -2224,7 +2243,16 @@ LPVOID CHookScanner::RedirectionExportFuncAddr(const char* lpExportFuncAddr, con
 	}
 
 	AnalyzePEInfo(lpBackupBaseAddr, &ExportDLLINfo);
-	lpRedirectedExportFuncAddr = GetExportFuncAddrByName(lpBackupBaseAddr, &ExportDLLINfo, wpFuncName, pBaseDLL, wsRedirectedDLLName.c_str(), ppBase);
+
+	if (!bNameBase)
+	{
+		lpRedirectedExportFuncAddr = GetExportFuncAddrByOrdinal(lpBackupBaseAddr, &ExportDLLINfo, wOrdinal, pBaseDLL, wsRedirectedDLLName.c_str(), ppBase);
+	}
+	else
+	{
+		lpRedirectedExportFuncAddr = GetExportFuncAddrByName(lpBackupBaseAddr, &ExportDLLINfo, wpFuncName, pBaseDLL, wsRedirectedDLLName.c_str(), ppBase);
+	}
+
 	if (NULL == *ppBase)
 	{
 		*ppBase = lpBaseAddr;
@@ -2263,6 +2291,7 @@ LPVOID CHookScanner::GetModuleSimCache(const wchar_t* pModulePath)
 	return m_mapSimDLLCache[pModulePath];
 }
 
+//todo：去重：处理保存相同的情况
 VOID CHookScanner::SaveHookResult(HOOK_TYPE type, const wchar_t* pModulePath, const wchar_t* pFunc, LPVOID pHookedAddr, LPVOID lpRecoverAddr)
 {
 	HOOK_RESULT HookResult = { 0 };
