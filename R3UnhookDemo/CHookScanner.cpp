@@ -2254,6 +2254,8 @@ VOID CHookScanner::ReleaseALLModuleSimCache()
 	for (auto p : m_mapSimDLLCache) {
 		FreeSimulateDLL(&p.second);
 	}
+
+	m_mapSimDLLCache.clear();
 }
 
 LPVOID CHookScanner::GetModuleSimCache(const wchar_t* pModulePath)
