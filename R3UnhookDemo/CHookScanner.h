@@ -302,6 +302,7 @@ private:
 	DWORD AlignSize(const DWORD dwSize, const DWORD dwAlign);
 
 	LPVOID GetExportFuncAddrByName(LPVOID pExportDLLBase, PPE_INFO pExportDLLInfo, const wchar_t* pFuncName, const wchar_t* pBaseDLL, const wchar_t* pPreHostDLL, LPVOID *ppBase);
+	LPVOID GetExportFuncAddrByNameNoRedirection(LPVOID pDLLBase, PPE_INFO pDLLInfo, const wchar_t* pFuncName);
 
 	LPVOID GetWow64ExportFuncAddrByName(LPVOID pExportDLLBase, PPE_INFO pExportDLLInfo, LPVOID lpx86BaseAddr, const wchar_t* pFuncName, const wchar_t* pBaseDLL, const wchar_t* pPreHostDLL);
 
@@ -328,9 +329,10 @@ private:
 	DWORD GetModuleBaseOfCode(const wchar_t* p);
 	DWORD GetModuleSizeOfCode(const wchar_t* p);
 
-	VOID SaveHookResult(HOOK_TYPE type, const wchar_t* pModulePath, const wchar_t* pFunc, LPVOID pHookedAddr, LPVOID lpRecoverAddr);
+	VOID SaveHookResult(HOOK_TYPE type, const wchar_t* pModulePath, const wchar_t* pFunc, LPVOID pHookedAddr, const wchar_t* wcsRecoverDLL, LPVOID lpRecoverAddr);
 
 	BOOL UnHookInner(PPROCESS_INFO pProcessInfo, PHOOK_RESULT pHookResult);
+	BOOL UnHookInlineHook(PPROCESS_INFO pProcessInfo, PHOOK_RESULT pHookResult);
 
 	BOOL UnHookWirteProcessMemory(HANDLE hProcess, PHOOK_RESULT pHookResult, UINT32 uLen);
 
