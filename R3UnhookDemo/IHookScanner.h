@@ -2,7 +2,7 @@
 #include <Windows.h>
 #include <vector>
 
-#define MAX_PROCESS_LEN			0x50
+#define MAX_PROCESS_NAME_LEN			0x50
 #define MAX_MODULE_PATH_LEN		0x400
 #define MAX_FUNCTION_LEN		0x50
 
@@ -34,13 +34,19 @@ typedef struct _HOOK_RESULT
 	HOOK_TYPE type;
 
 	//被Hook的进程
-	wchar_t szProcess[MAX_PROCESS_LEN];
+	wchar_t szProcess[MAX_PROCESS_NAME_LEN];
 
 	//被Hook的模块
-	wchar_t szModule[MAX_MODULE_PATH_LEN];
+	wchar_t szHookedModule[MAX_MODULE_PATH_LEN];
 
-	//被Hook的函数
+	//被Hook的函数。这里保存的是偏移
 	wchar_t szFuncName[MAX_FUNCTION_LEN];
+
+	//从哪个DLL恢复。InlineHook恢复专用
+	wchar_t szRecoverDLL[MAX_MODULE_PATH_LEN];
+
+	//用来保存跳转到哪个DLL
+	wchar_t szTargetDLL[MAX_MODULE_PATH_LEN];
 }HOOK_RESULT, * PHOOK_RESULT;
 
 //未支持多线程

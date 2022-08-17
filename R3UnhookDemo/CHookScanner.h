@@ -6,7 +6,7 @@
 
 #define MAX_PROCESS_LEN			0x200
 #define MAX_MODULE_NAME_LEN		0x200
-#define INLINE_HOOK_LEN			10
+#define INLINE_HOOK_CHECK_LEN	10
 #define MAX_SUSPEND_THREAD		0x400
 #include <vector>
 #include <unordered_map>
@@ -236,6 +236,12 @@ private:
 
 	VOID FixBaseReloc64Inner(LPVOID pBuffer, PPE_INFO pPeInfo, LPVOID lpDLLBase, LPVOID lpImageBase);
 	VOID FixBaseReloc32Inner(LPVOID pBuffer, PPE_INFO pPeInfo, LPVOID lpDLLBase, LPVOID lpImageBase);
+	/**
+	* 重定位段是一个数组，每个成员表示待修复的一块内容，这里修复其中的一块数据
+	*
+	* @return
+	*/
+	BOOL FixBaseRelocBlock(LPVOID, PUSHORT, INT64);
 
 	/**
 	* 构建在内存中模拟的DLL的导入表
@@ -249,17 +255,10 @@ private:
 	BOOL BuildImportTable32Inner(LPVOID pBuffer, PPE_INFO pPeInfo, PMODULE_INFO pModuleInfo);
 	BOOL BuildImportTable64Inner(LPVOID pBuffer, PPE_INFO pPeInfo, PMODULE_INFO pModuleInfo);
 
+	template <typename TIMAGE_THUNK_DATA>
 	VOID SetSimFunctionZero(LPVOID pDllMemoryBuffer, PIMAGE_IMPORT_DESCRIPTOR pSimulateOriginImportTableVA);
 	LPVOID FindBackupBaseAddrByName(const wchar_t* pName);
 	LPVOID FindBaseAddrByName(const wchar_t* pName);
-
-
-	/**
-	* 重定位段是一个数组，每个成员表示待修复的一块内容，这里修复其中的一块数据
-	*
-	* @return
-	*/
-	BOOL FixBaseRelocBlock(LPVOID, LPVOID);
 
 	BOOL EnableDebugPrivelege();
 
@@ -303,10 +302,11 @@ private:
 	DWORD AlignSize(const DWORD dwSize, const DWORD dwAlign);
 
 	LPVOID GetExportFuncAddrByName(LPVOID pExportDLLBase, PPE_INFO pExportDLLInfo, const wchar_t* pFuncName, const wchar_t* pBaseDLL, const wchar_t* pPreHostDLL, LPVOID *ppBase);
+	LPVOID GetExportFuncAddrByNameNoRedirection(LPVOID pDLLBase, PPE_INFO pDLLInfo, const wchar_t* pFuncName);
 
 	LPVOID GetWow64ExportFuncAddrByName(LPVOID pExportDLLBase, PPE_INFO pExportDLLInfo, LPVOID lpx86BaseAddr, const wchar_t* pFuncName, const wchar_t* pBaseDLL, const wchar_t* pPreHostDLL);
 
-	LPVOID GetExportFuncAddrByOrdinal(LPVOID pExportDLLBase, PPE_INFO pExportDLLInfo, WORD wOrdinal);
+	LPVOID GetExportFuncAddrByOrdinal(LPVOID pExportDLLBase, PPE_INFO pExportDLLInfo, WORD wOrdinal, const wchar_t* pBaseDLL, const wchar_t* pPreHostDLL, LPVOID* ppBase);
 	LPVOID GetWow64ExportFuncAddrByOrdinal(LPVOID pExportDLLBase, PPE_INFO pExportDLLInfo, LPVOID lpx86BasAeAddr, WORD wOrdinal);
 	
 	//回调函数
@@ -329,9 +329,11 @@ private:
 	DWORD GetModuleBaseOfCode(const wchar_t* p);
 	DWORD GetModuleSizeOfCode(const wchar_t* p);
 
-	VOID SaveHookResult(HOOK_TYPE type, const wchar_t* pModulePath, const wchar_t* pFunc, LPVOID pHookedAddr, LPVOID lpRecoverAddr);
+	BOOL CheckIfResultExist(HOOK_TYPE type, const wchar_t* pFunc, LPVOID pHookedAddr, const wchar_t* wcsRecoverDLL, LPVOID lpRecoverAddr);
+	VOID SaveHookResult(HOOK_TYPE type, const wchar_t* pModulePath, const wchar_t* pFunc, LPVOID pHookedAddr, const wchar_t* wcsRecoverDLL, LPVOID lpRecoverAddr);
 
 	BOOL UnHookInner(PPROCESS_INFO pProcessInfo, PHOOK_RESULT pHookResult);
+	BOOL UnHookInlineHook(PPROCESS_INFO pProcessInfo, PHOOK_RESULT pHookResult);
 
 	BOOL UnHookWirteProcessMemory(HANDLE hProcess, PHOOK_RESULT pHookResult, UINT32 uLen);
 
