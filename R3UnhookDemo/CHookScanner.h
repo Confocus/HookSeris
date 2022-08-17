@@ -329,7 +329,7 @@ private:
 	DWORD GetModuleBaseOfCode(const wchar_t* p);
 	DWORD GetModuleSizeOfCode(const wchar_t* p);
 
-	VOID SaveHookResult(HOOK_TYPE type, const wchar_t* pModulePath, const wchar_t* pFunc, LPVOID pHookedAddr, const wchar_t* wcsRecoverDLL, LPVOID lpRecoverAddr);
+	VOID SaveHookResult(HOOK_TYPE type, const wchar_t* pModulePath, const wchar_t* pFunc, LPVOID pHookedAddr, const wchar_t* wcsRecoverDLL, LPVOID lpRecoverAddr, const wchar_t* szInWhichModule);
 
 	BOOL UnHookInner(PPROCESS_INFO pProcessInfo, PHOOK_RESULT pHookResult);
 	BOOL UnHookInlineHook(PPROCESS_INFO pProcessInfo, PHOOK_RESULT pHookResult);

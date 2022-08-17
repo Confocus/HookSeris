@@ -1374,6 +1374,10 @@ BOOL CHookScanner::ScanModuleEATHook32Inner(PMODULE_INFO pModuleInfo, LPVOID pDl
 		wOrdinal = pOrdinalAddr[i];
 		char* pName = (char*)pModuleInfo->pDllBakupBaseAddr + pExportFuncName[i];
 		char* pSimName = (char*)pDllMemoryBuffer + pSimulateExportFuncName[i];
+		if (strcmp(pName, "DefDlgProcA") == 0)
+		{
+			printf("");
+		}
 		/*char* pFunc = (char*)pModuleInfo->pDllBaseAddr + pExportFuncAddr[wOrdinal];
 		char* pSimFunc = (char*)pDllMemoryBuffer + pSimulateExportFuncAddr[wOrdinal];*/
 
@@ -1435,6 +1439,10 @@ BOOL CHookScanner::ScanModuleEATHook64Inner(PMODULE_INFO pModuleInfo, LPVOID pDl
 		wOrdinal = pOrdinalAddr[i];
 		char* pName = (char*)pModuleInfo->pDllBakupBaseAddr + pExportFuncName[i];
 		char* pSimName = (char*)pDllMemoryBuffer + pSimulateExportFuncName[i];
+		if (_stricmp(pName, "DefDlgProcA") == 0)
+		{
+			printf("");
+		}
 		/*char* pFunc = (char*)pModuleInfo->pDllBaseAddr + pExportFuncAddr[wOrdinal];
 		char* pSimFunc = (char*)pDllMemoryBuffer + pSimulateExportFuncAddr[wOrdinal];*/
 
@@ -1991,16 +1999,23 @@ BOOL WINAPI CHookScanner::CbCollectx86ModuleInfo(PPROCESS_INFO pProcessInfo, PMO
 	ULONG dwReadByte = 0;
 	DWORD dwErrCode = 0;
 	DWORD dwOldAttr = 0;
+	DWORD dwTmp = 0;
 	pModuleInfo->pDllBakupBaseAddr = new(std::nothrow) BYTE[pModuleInfo->dwSizeOfImage];
 	ZeroMemory(pModuleInfo->pDllBakupBaseAddr, pModuleInfo->dwSizeOfImage);
 	if (NULL == pModuleInfo->pDllBakupBaseAddr)
 	{
 		return FALSE;
 	}
+	dwErrCode = GetLastError();
+	VirtualProtectEx(pProcessInfo->hProcess, (LPVOID)pModuleInfo->pDllBaseAddr, pModuleInfo->dwSizeOfImage, PAGE_EXECUTE_READWRITE, &dwOldAttr);
+	dwErrCode = GetLastError();
 
-	VirtualProtectEx(pProcessInfo->hProcess, pModuleInfo->pDllBaseAddr, pModuleInfo->dwSizeOfImage, PAGE_EXECUTE_READWRITE, &dwOldAttr);
 	ReadProcessMemory(pProcessInfo->hProcess, pModuleInfo->pDllBaseAddr, pModuleInfo->pDllBakupBaseAddr, pModuleInfo->dwSizeOfImage, 0);
-	VirtualProtectEx(pProcessInfo->hProcess, pModuleInfo->pDllBaseAddr, pModuleInfo->dwSizeOfImage, dwOldAttr, NULL);
+	dwErrCode = GetLastError();
+
+	VirtualProtectEx(pProcessInfo->hProcess, (LPVOID)pModuleInfo->pDllBaseAddr, pModuleInfo->dwSizeOfImage, dwOldAttr, &dwTmp);
+	dwErrCode = GetLastError();
+
 	pProcessInfo->m_vecModuleInfo.push_back(pModuleInfo);
 
 	return TRUE;
@@ -2036,10 +2051,16 @@ BOOL WINAPI CHookScanner::CbCollectWow64Sys32ModuleInfo(PPROCESS_INFO pProcessIn
 	{
 		return FALSE;
 	}
+	dwErrCode = GetLastError();
 
-	VirtualProtectEx(pProcessInfo->hProcess, pModuleInfo->pDllBaseAddr, pModuleInfo->dwSizeOfImage, PAGE_EXECUTE_READWRITE, &dwOldAttr);
+	VirtualProtectEx(pProcessInfo->hProcess, (LPVOID)pModuleInfo->pDllBaseAddr, pModuleInfo->dwSizeOfImage, PAGE_EXECUTE_READWRITE, &dwOldAttr);
+	dwErrCode = GetLastError();
 	ReadProcessMemory(pProcessInfo->hProcess, pModuleInfo->pDllBaseAddr, pModuleInfo->pDllBakupBaseAddr, pModuleInfo->dwSizeOfImage, 0);
+	dwErrCode = GetLastError();
+
 	VirtualProtectEx(pProcessInfo->hProcess, pModuleInfo->pDllBaseAddr, pModuleInfo->dwSizeOfImage, dwOldAttr, NULL);
+	dwErrCode = GetLastError();
+
 	pProcessInfo->m_vecModuleInfo.push_back(pModuleInfo);
 
 	//FreeLibrary(hModule);
@@ -2341,7 +2362,7 @@ LPVOID CHookScanner::GetModuleSimCache(const wchar_t* pModulePath)
 }
 
 //todo：去重：处理保存相同的情况
-VOID CHookScanner::SaveHookResult(HOOK_TYPE type, const wchar_t* pModulePath, const wchar_t* pFunc, LPVOID pHookedAddr, const wchar_t* wcsRecoverDLL, LPVOID lpRecoverAddr)
+VOID CHookScanner::SaveHookResult(HOOK_TYPE type, const wchar_t* pModulePath, const wchar_t* pFunc, LPVOID pHookedAddr, const wchar_t* wcsRecoverDLL, LPVOID lpRecoverAddr, const wchar_t* szInWhichModule)
 {
 	HOOK_RESULT HookResult = { 0 };
 	PPROCESS_INFO pProcessInfo = NULL;
@@ -2352,10 +2373,10 @@ VOID CHookScanner::SaveHookResult(HOOK_TYPE type, const wchar_t* pModulePath, co
 	pProcessInfo = GetScannedProcess();
 	HookResult.dwProcessId = pProcessInfo->dwProcessId;
 
-	memset((void*)HookResult.szModule, 0, sizeof(wchar_t) * MAX_MODULE_PATH_LEN);
+	memset((void*)HookResult.szHookedModule, 0, sizeof(wchar_t) * MAX_MODULE_PATH_LEN);
 	if (pModulePath)
 	{
-		wcscpy_s((wchar_t*)HookResult.szModule, wcslen(pModulePath) + 1, (wchar_t*)pModulePath);
+		wcscpy_s((wchar_t*)HookResult.szHookedModule, wcslen(pModulePath) + 1, (wchar_t*)pModulePath);
 	}
 
 	memset((void*)HookResult.szFuncName, 0, sizeof(wchar_t) * MAX_FUNCTION_LEN);
@@ -2370,7 +2391,7 @@ VOID CHookScanner::SaveHookResult(HOOK_TYPE type, const wchar_t* pModulePath, co
 		wcscpy_s((wchar_t*)HookResult.szRecoverDLL, wcslen(wcsRecoverDLL) + 1, (wchar_t*)wcsRecoverDLL);
 	}
 
-	memset((void*)HookResult.szProcess, 0, sizeof(wchar_t) * MAX_PROCESS_LEN);
+	memset((void*)HookResult.szProcess, 0, sizeof(wchar_t) * MAX_PROCESS_NAME_LEN);
 	wcscpy_s((wchar_t*)HookResult.szProcess, wcslen(m_pScannedProcess->szProcessName) + 1, (wchar_t*)m_pScannedProcess->szProcessName);
 
 	m_vecHookRes.push_back(HookResult);
@@ -2378,6 +2399,7 @@ VOID CHookScanner::SaveHookResult(HOOK_TYPE type, const wchar_t* pModulePath, co
 	return;
 }
 
+//todo：增加判断是否是DC的钩子
 BOOL CHookScanner::UnHookInner(PPROCESS_INFO pProcessInfo, PHOOK_RESULT pHookResult)
 {
 	CHECK_POINTER_NULL(pProcessInfo, FALSE);
@@ -2528,6 +2550,8 @@ BOOL CHookScanner::UnHookWirteProcessMemory(HANDLE hProcess, PHOOK_RESULT pHookR
 {
 	DWORD dwOldAttr = 0;
 	CHECK_POINTER_NULL(pHookResult, FALSE);
+	CHECK_POINTER_NULL(pHookResult->lpHookedAddr, FALSE);
+	CHECK_POINTER_NULL(pHookResult->lpRecoverAddr, FALSE);
 
 	VirtualProtectEx(hProcess, pHookResult->lpHookedAddr, uLen, PAGE_EXECUTE_READWRITE, &dwOldAttr);
 	WriteProcessMemory(hProcess, pHookResult->lpHookedAddr, pHookResult->lpRecoverAddr, uLen, NULL);
