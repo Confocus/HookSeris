@@ -716,6 +716,7 @@ VOID CHookScanner::FixBaseReloc64Inner(LPVOID pBuffer, PPE_INFO pPeInfo, LPVOID 
 		dwBaseRelocCount = dwBaseRelocBlockSize / sizeof(USHORT);//需要重定位的数据有多少个
 
 		lpRelocVA = (LPVOID)((UINT64)pBuffer + (UINT64)pBaseRelocBlock->VirtualAddress);//指向了一个4K的页，需要重定位的数据
+
 		for (int i = 0; i < dwBaseRelocCount; i++)
 		{
 			FixBaseRelocBlock(lpRelocVA, pNextRelocOffset, nDiff);
@@ -734,6 +735,7 @@ BOOL CHookScanner::FixBaseRelocBlock(LPVOID lpRelocVA, PUSHORT pNextRelocOffset,
 	LPVOID lpUnFixedAddr = NULL;
 	WORD wOffset = *(pNextRelocOffset) & 0x0FFF;
 	lpUnFixedAddr = (LPVOID)((UINT64)lpRelocVA + wOffset);
+
 	//todo：这些选项有待完善
 	switch (*(pNextRelocOffset) >> 12)
 	{
@@ -1443,6 +1445,11 @@ BOOL CHookScanner::ScanModuleEATHook64Inner(PMODULE_INFO pModuleInfo, LPVOID pDl
 		{
 			printf("");
 		}
+
+		if (_stricmp(pName, "CoRegisterClassObject") == 0)
+		{
+			printf("");
+		}
 		/*char* pFunc = (char*)pModuleInfo->pDllBaseAddr + pExportFuncAddr[wOrdinal];
 		char* pSimFunc = (char*)pDllMemoryBuffer + pSimulateExportFuncAddr[wOrdinal];*/
 
@@ -1454,6 +1461,9 @@ BOOL CHookScanner::ScanModuleEATHook64Inner(PMODULE_INFO pModuleInfo, LPVOID pDl
 		//printf("0x%016I64X\n", pSimFunc);
 		//printf("0x%016I64X\n\n", pSimulateExportFuncAddr[wOrdinal]);
 
+		//这里仅仅是通过导出函数的偏移来判断是否被Hook
+		//CoRegisterClassObject是combase.dll的导出函数，导出函数的地址没被更改，但是导出函数入口的代码被改成了jmp xxxxxxxx
+		//而inlineHook检测中没有检查导出函数表。EAT检测中又只是比较了导出地址，所以没检测出来
 		if (pSimulateExportFuncAddr[wOrdinal] != pExportFuncAddr[wOrdinal])
 		{
 			wchar_t* wpName = ConvertCharToWchar(pName);
@@ -1462,6 +1472,10 @@ BOOL CHookScanner::ScanModuleEATHook64Inner(PMODULE_INFO pModuleInfo, LPVOID pDl
 
 			printf("EAT Hook found.\n");
 		}
+
+		//扫描导出表的入口代码
+
+
 	}
 
 	return TRUE;
@@ -1708,7 +1722,7 @@ BOOL CHookScanner::ScanModule64InlineHook(PMODULE_INFO pModuleInfo, LPVOID pDllM
 			LPVOID lpSimDLLBase = NULL;
 			LPVOID lpFinalBase = NULL;
 			wchar_t* wcsFuncName = NULL;
-
+			
 			if (pSimulateOriginFirstThunk->u1.Ordinal & IMAGE_ORDINAL_FLAG64)//无名函数的情况，靠Ordinal
 			{
 				wOrdinal = pSimulateOriginFirstThunk->u1.Ordinal & 0xFFFF;
@@ -1718,6 +1732,11 @@ BOOL CHookScanner::ScanModule64InlineHook(PMODULE_INFO pModuleInfo, LPVOID pDllM
 			{
 				//拿到导入函数名，根据导入函数名，去查对应的DLL的导出函数地址
 				pName = (PIMAGE_IMPORT_BY_NAME)((BYTE*)pDllMemoryBuffer + pSimulateOriginFirstThunk->u1.AddressOfData);
+
+				if (strcmp(pName->Name, "CoRegisterClassObject") == 0)
+				{
+					printf("");
+				}
 				wcsFuncName = ConvertCharToWchar(pName->Name);
 				ExportAddr = GetExportFuncAddrByName(lpBackupBaseAddr, &ImportDLLInfo, wcsFuncName, pModuleInfo->szModuleName, wsRedirectedDLLName.c_str(), &lpFinalBase);
 			}
@@ -1752,8 +1771,9 @@ BOOL CHookScanner::ScanModule64InlineHook(PMODULE_INFO pModuleInfo, LPVOID pDllM
 			//todo：待解决NlsMbCodePageTag这类函数不在code节的问题
 			if (memcmp((BYTE*)lpSimDLLBase + (UINT64)ExportAddr, (BYTE*)lpRedirectBackupBaseAddr + (UINT64)ExportAddr, INLINE_HOOK_LEN) != 0)
 			{
+				//todo：保存钩子前做一个最后一次校验，看看跳转的目标地址所在的DLL是否真的和exe不是一个公司的
 				SaveHookResult(HOOK_TYPE::InlineHook, pModuleInfo->szModulePath, wcsFuncName, (BYTE*)lpFinalBase + (UINT64)ExportAddr, wcsRecoverDLL, (BYTE*)lpSimDLLBase + (UINT64)ExportAddr);
-				printf("IAT Inlie Hook.\n");
+				//printf("IAT Inlie Hook.\n");
 			}
 			FreeConvertedWchar(wcsFuncName);
 			//2、遍历其导出表
@@ -2362,7 +2382,7 @@ LPVOID CHookScanner::GetModuleSimCache(const wchar_t* pModulePath)
 }
 
 //todo：去重：处理保存相同的情况
-VOID CHookScanner::SaveHookResult(HOOK_TYPE type, const wchar_t* pModulePath, const wchar_t* pFunc, LPVOID pHookedAddr, const wchar_t* wcsRecoverDLL, LPVOID lpRecoverAddr, const wchar_t* szInWhichModule)
+VOID CHookScanner::SaveHookResult(HOOK_TYPE type, const wchar_t* pModulePath, const wchar_t* pFunc, LPVOID pHookedAddr, const wchar_t* wcsRecoverDLL, LPVOID lpRecoverAddr)
 {
 	HOOK_RESULT HookResult = { 0 };
 	PPROCESS_INFO pProcessInfo = NULL;

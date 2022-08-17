@@ -68,7 +68,7 @@ void main()
 		}
 
 		printf("\n{\n");
-		printf("Hooked Module:%ls\nHooked Function:%ls\nHooked Address:0x%016lx\nRecovered Address:0x%016lx\n", i.szHookedModule, i.szFuncName, i.lpHookedAddr, i.lpRecoverAddr);
+		printf("Hooked Module:%ls\nIn Module:%ls\nHooked Function:%ls\nHooked Address:0x%016I64x\nRecovered Address:0x%016I64x\n", i.szHookedModule, i.szRecoverDLL, i.szFuncName, i.lpHookedAddr, i.lpRecoverAddr);
 		printf("}");
 	}
 
@@ -79,7 +79,7 @@ void main()
 	//printf("xxx");
 
 	
-
+	printf("\nfinish..\n");
 	getchar();
 	return;
 }

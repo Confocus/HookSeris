@@ -39,14 +39,14 @@ typedef struct _HOOK_RESULT
 	//被Hook的模块
 	wchar_t szHookedModule[MAX_MODULE_PATH_LEN];
 
-	//被Hook的函数所在的MODULE
-	wchar_t szInWhichModule[MAX_MODULE_PATH_LEN];
-
 	//被Hook的函数。这里保存的是偏移
 	wchar_t szFuncName[MAX_FUNCTION_LEN];
 
 	//从哪个DLL恢复。InlineHook恢复专用
 	wchar_t szRecoverDLL[MAX_MODULE_PATH_LEN];
+
+	//用来保存跳转到哪个DLL
+	wchar_t szTargetDLL[MAX_MODULE_PATH_LEN];
 }HOOK_RESULT, * PHOOK_RESULT;
 
 //未支持多线程
