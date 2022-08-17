@@ -1,0 +1,4 @@
+LIBRARY	"R3HookScanDLL"
+EXPORTS
+CreateObject	@1
+ReleaseObject	@2
