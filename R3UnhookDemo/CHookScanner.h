@@ -6,7 +6,7 @@
 
 #define MAX_PROCESS_LEN			0x200
 #define MAX_MODULE_NAME_LEN		0x200
-#define INLINE_HOOK_LEN			10
+#define INLINE_HOOK_CHECK_LEN	10
 #define MAX_SUSPEND_THREAD		0x400
 #include <vector>
 #include <unordered_map>
@@ -329,6 +329,7 @@ private:
 	DWORD GetModuleBaseOfCode(const wchar_t* p);
 	DWORD GetModuleSizeOfCode(const wchar_t* p);
 
+	BOOL CheckIfResultExist(HOOK_TYPE type, const wchar_t* pFunc, LPVOID pHookedAddr, const wchar_t* wcsRecoverDLL, LPVOID lpRecoverAddr);
 	VOID SaveHookResult(HOOK_TYPE type, const wchar_t* pModulePath, const wchar_t* pFunc, LPVOID pHookedAddr, const wchar_t* wcsRecoverDLL, LPVOID lpRecoverAddr);
 
 	BOOL UnHookInner(PPROCESS_INFO pProcessInfo, PHOOK_RESULT pHookResult);

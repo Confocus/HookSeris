@@ -7,6 +7,8 @@
 #include <algorithm>
 #include <winternl.h>
 
+int g_TestCount = 0;
+
 using namespace blackbone;
 vector<PROCESS_INFO*> CHookScanner::m_vecProcessInfo;//无法解析的外部符号
 
@@ -526,6 +528,7 @@ VOID CHookScanner::FreeSimulateDLL(LPVOID* ppDllMemoryBuffer)
 	}
 }
 
+//todo：把解析过的PE缓存下来，不用每次都解析
 BOOL CHookScanner::AnalyzePEInfo(LPVOID pBuffer, PPE_INFO pPeInfo)
 {
 	CHECK_POINTER_NULL(pBuffer, FALSE);
@@ -1394,7 +1397,7 @@ BOOL CHookScanner::ScanModuleEATHook32Inner(PMODULE_INFO pModuleInfo, LPVOID pDl
 		if (pSimulateExportFuncAddr[wOrdinal] != pExportFuncAddr[wOrdinal])
 		{
 			wchar_t* wpName = ConvertCharToWchar(pName);
-			SaveHookResult(HOOK_TYPE::EATHook, pModuleInfo->szModulePath, wpName, (LPVOID)&pExportFuncAddr[wOrdinal], NULL, (LPVOID)&pSimulateExportFuncAddr[wOrdinal]);
+			SaveHookResult(HOOK_TYPE::EATHook, pModuleInfo->szModulePath, wpName, (LPVOID)&pExportFuncAddr[wOrdinal], pModuleInfo->szModulePath, (LPVOID)&pSimulateExportFuncAddr[wOrdinal]);
 			FreeConvertedWchar(wpName);
 
 			printf("EAT Hook found.\n");
@@ -1445,11 +1448,6 @@ BOOL CHookScanner::ScanModuleEATHook64Inner(PMODULE_INFO pModuleInfo, LPVOID pDl
 		{
 			printf("");
 		}
-
-		if (_stricmp(pName, "CoRegisterClassObject") == 0)
-		{
-			printf("");
-		}
 		/*char* pFunc = (char*)pModuleInfo->pDllBaseAddr + pExportFuncAddr[wOrdinal];
 		char* pSimFunc = (char*)pDllMemoryBuffer + pSimulateExportFuncAddr[wOrdinal];*/
 
@@ -1464,17 +1462,52 @@ BOOL CHookScanner::ScanModuleEATHook64Inner(PMODULE_INFO pModuleInfo, LPVOID pDl
 		//这里仅仅是通过导出函数的偏移来判断是否被Hook
 		//CoRegisterClassObject是combase.dll的导出函数，导出函数的地址没被更改，但是导出函数入口的代码被改成了jmp xxxxxxxx
 		//而inlineHook检测中没有检查导出函数表。EAT检测中又只是比较了导出地址，所以没检测出来
+		//但是这里是否有必要检测EAT的inline Hook？某个DLL的导出函数如果没有被这个exe调用，又何必摘掉它？
+		//而且还有一个问题，会有很多地方有诸如semDxTrimNotification函数，虽然它是导出函数，但其内存中的数据全是0
+		wchar_t* wpName = ConvertCharToWchar(pName);
 		if (pSimulateExportFuncAddr[wOrdinal] != pExportFuncAddr[wOrdinal])
 		{
-			wchar_t* wpName = ConvertCharToWchar(pName);
-			SaveHookResult(HOOK_TYPE::EATHook, pModuleInfo->szModulePath, wpName, (LPVOID)&pExportFuncAddr[wOrdinal], NULL, (LPVOID)&pSimulateExportFuncAddr[wOrdinal]);
-			FreeConvertedWchar(wpName);
+			SaveHookResult(HOOK_TYPE::EATHook, pModuleInfo->szModulePath, wpName, (LPVOID)&pExportFuncAddr[wOrdinal], pModuleInfo->szModulePath, (LPVOID)&pSimulateExportFuncAddr[wOrdinal]);
 
 			printf("EAT Hook found.\n");
 		}
+		else
+		{
+			//todo：这里和32位不一致了
+			//虽然是在ScanModuleEATHook64Inner中，但是扫描的是导出表的入口点处的代码，所以算作Inline Hook
+			if (memcmp((BYTE*)pModuleInfo->pDllBakupBaseAddr + (DWORD)pSimulateExportFuncAddr[wOrdinal], (BYTE*)pDllMemoryBuffer + (DWORD)pSimulateExportFuncAddr[wOrdinal], INLINE_HOOK_CHECK_LEN) != 0)
+			{
+				do 
+				{
+					//增加判断是否在代码区，否则总有类似全局变量的东西导出，而且存在于数据段。
+					BOOL bIsFuncCodeSection = IsFuncInCodeSection(pModuleInfo, (UINT64)pSimulateExportFuncAddr[wOrdinal]);
+					if (!bIsFuncCodeSection)
+					{
+						break;
+					}
 
-		//扫描导出表的入口代码
+					//ExportAddr = GetExportFuncAddrByName(lpBackupBaseAddr, &ImportDLLInfo, wcsFuncName, pModuleInfo->szModuleName, wsRedirectedDLLName.c_str(), &lpFinalBase);
+					HMODULE hModule = NULL;
+					hModule = GetModuleHandle(pModuleInfo->szModulePath);
+					if (!hModule)
+					{
+						break;
+					}
 
+					LPVOID lpSimDLLBase = NULL;
+					lpSimDLLBase = GetModuleSimCache(pModuleInfo->szModulePath);
+					if (!lpSimDLLBase)
+					{
+						break;
+					}
+					
+					SaveHookResult(HOOK_TYPE::InlineHook, pModuleInfo->szModulePath, wpName, (BYTE*)hModule + (UINT64)pExportFuncAddr[wOrdinal], pModuleInfo->szModulePath, (BYTE*)lpSimDLLBase + (UINT64)pSimulateExportFuncAddr[wOrdinal]);
+				} while (0);
+				
+				//printf("0x%016I64x", (BYTE*)pModuleInfo->pDllBakupBaseAddr + (DWORD)pSimulateExportFuncAddr[wOrdinal]);
+			}
+		}
+		FreeConvertedWchar(wpName);
 
 	}
 
@@ -1628,7 +1661,7 @@ BOOL CHookScanner::ScanModule32InlineHook(PMODULE_INFO pModuleInfo, LPVOID pDllM
 			}
 
 			//正确地址 对比 备份地址
-			if (memcmp( (BYTE*)lpSimDLLBase + (UINT32)ExportAddr, (BYTE*)((BYTE*)lpRedirectBackupBaseAddr + (UINT32)ExportAddr), INLINE_HOOK_LEN) != 0)
+			if (memcmp( (BYTE*)lpSimDLLBase + (UINT32)ExportAddr, (BYTE*)((BYTE*)lpRedirectBackupBaseAddr + (UINT32)ExportAddr), INLINE_HOOK_CHECK_LEN) != 0)
 			{
 				SaveHookResult(HOOK_TYPE::InlineHook, pModuleInfo->szModulePath, wcsFuncName, (BYTE*)lpBase + (UINT32)ExportAddr, wcsRecoverDLL, (BYTE*)lpSimDLLBase + (UINT32)ExportAddr);
 				printf("IAT Inlie Hook.\n");
@@ -1769,7 +1802,8 @@ BOOL CHookScanner::ScanModule64InlineHook(PMODULE_INFO pModuleInfo, LPVOID pDllM
 			}
 
 			//todo：待解决NlsMbCodePageTag这类函数不在code节的问题
-			if (memcmp((BYTE*)lpSimDLLBase + (UINT64)ExportAddr, (BYTE*)lpRedirectBackupBaseAddr + (UINT64)ExportAddr, INLINE_HOOK_LEN) != 0)
+			//网上搜到，BOOLEAN NlsMbCodePageTag = FALSE; /* exported *///全局导出，说明NlsMbCodePageTag并不是一个导出函数，而是一个导出的全局变量
+			if (memcmp((BYTE*)lpSimDLLBase + (UINT64)ExportAddr, (BYTE*)lpRedirectBackupBaseAddr + (UINT64)ExportAddr, INLINE_HOOK_CHECK_LEN) != 0)
 			{
 				//todo：保存钩子前做一个最后一次校验，看看跳转的目标地址所在的DLL是否真的和exe不是一个公司的
 				SaveHookResult(HOOK_TYPE::InlineHook, pModuleInfo->szModulePath, wcsFuncName, (BYTE*)lpFinalBase + (UINT64)ExportAddr, wcsRecoverDLL, (BYTE*)lpSimDLLBase + (UINT64)ExportAddr);
@@ -2381,9 +2415,56 @@ LPVOID CHookScanner::GetModuleSimCache(const wchar_t* pModulePath)
 	return m_mapSimDLLCache[pModulePath];
 }
 
+//todo：更换存放的结构体为map，以免钩子太多去重效率太低
+BOOL CHookScanner::CheckIfResultExist(HOOK_TYPE type, const wchar_t* pFunc, LPVOID pHookedAddr, const wchar_t* wcsRecoverDLL, LPVOID lpRecoverAddr)
+{
+	BOOL bFound = FALSE;
+	for (auto i : m_vecHookRes)
+	{
+		//存在同一个导出函数但是有多个名字的情况
+		//为了提升效率，也可以只是用pHookedAddr进行判断，但是这只能针对单个进程进行扫描。
+		if (wcscmp(pFunc, i.szFuncName) != 0)
+		{
+			continue;
+		}
+
+		if (wcscmp(wcsRecoverDLL, i.szRecoverDLL) != 0)
+		{
+			continue;
+		}
+
+		if (pHookedAddr != i.lpHookedAddr)
+		{
+			continue;
+		}
+
+		if (type != i.type)
+		{
+			continue;
+		}
+
+		bFound = TRUE;
+		break;
+	}
+
+	return bFound;
+}
+
 //todo：去重：处理保存相同的情况
 VOID CHookScanner::SaveHookResult(HOOK_TYPE type, const wchar_t* pModulePath, const wchar_t* pFunc, LPVOID pHookedAddr, const wchar_t* wcsRecoverDLL, LPVOID lpRecoverAddr)
 {
+	CHECK_POINTER_NULL_VOID(pModulePath);
+	CHECK_POINTER_NULL_VOID(pFunc);
+	CHECK_POINTER_NULL_VOID(wcsRecoverDLL);
+	CHECK_POINTER_NULL_VOID(pHookedAddr);
+	CHECK_POINTER_NULL_VOID(lpRecoverAddr);
+
+	//去重。效率不高，遍历了vector
+	if (CheckIfResultExist(type, pFunc, pHookedAddr, wcsRecoverDLL, lpRecoverAddr))
+	{
+		return;
+	}
+
 	HOOK_RESULT HookResult = { 0 };
 	PPROCESS_INFO pProcessInfo = NULL;
 	HookResult.dwHookId = ++dwHookResCount;
@@ -2420,6 +2501,7 @@ VOID CHookScanner::SaveHookResult(HOOK_TYPE type, const wchar_t* pModulePath, co
 }
 
 //todo：增加判断是否是DC的钩子
+//todo：UnHook前判断是否已经摘过了，因为会有相同的导出函数有多个名字的情况
 BOOL CHookScanner::UnHookInner(PPROCESS_INFO pProcessInfo, PHOOK_RESULT pHookResult)
 {
 	CHECK_POINTER_NULL(pProcessInfo, FALSE);
@@ -2501,7 +2583,7 @@ BOOL CHookScanner::UnHookInlineHook(PPROCESS_INFO pProcessInfo, PHOOK_RESULT pHo
 	pHookResult->lpRecoverAddr = (LPVOID)((UINT64)lpRecoverAddr + (UINT64)lpSimDLLBufferForUnhook);
 	
 	SuspendAllThreads(pProcessInfo->dwProcessId, &dwThreadCount, szThreadHandle);
-	UnHookWirteProcessMemory(pProcessInfo->hProcess, pHookResult, INLINE_HOOK_LEN);
+	UnHookWirteProcessMemory(pProcessInfo->hProcess, pHookResult, INLINE_HOOK_CHECK_LEN);
 	ResumeAllThreads(pProcessInfo->dwProcessId, dwThreadCount, szThreadHandle);
 
 	FreeSimulateDLL(&lpSimDLLBufferForUnhook);
@@ -2650,5 +2732,6 @@ BOOL CHookScanner::IsFuncInCodeSection(PMODULE_INFO pModInfo, UINT64 dwOffset)
 	dwAlignSize = AlignSize(info.dwSizeOfCode, info.dwSectionAlign);
 	dwAlignBase = AlignSize(info.dwBaseOfCode, info.dwSectionAlign);
 	
+	//todo：是否需要确保dwOffset > dwAlignBase ？
 	return (UINT64)dwOffset < dwAlignSize + dwAlignBase;
 }
