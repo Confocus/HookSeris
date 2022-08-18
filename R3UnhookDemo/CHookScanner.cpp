@@ -6,7 +6,7 @@
 #include "ApiSet.h"
 #include <algorithm>
 #include <winternl.h>
-
+using namespace std;
 int g_TestCount = 0;
 
 using namespace blackbone;
@@ -244,16 +244,16 @@ BOOL CHookScanner::EmurateModules(PPROCESS_INFO pProcessInfo)
 	else
 	{
 		BOOL bIsSelfWow64 = FALSE;
-		IsWow64Process(GetCurrentProcess(), &bIsSelfWow64);
-		if (bIsSelfWow64)
-		{
-			return FALSE;
-		}
+IsWow64Process(GetCurrentProcess(), &bIsSelfWow64);
+if (bIsSelfWow64)
+{
+	return FALSE;
+}
 
-		if (!GetModulesSnapshot(TH32CS_SNAPMODULE, pProcessInfo, CbCollectx64ModuleInfo))
-		{
-			return FALSE;
-		}
+if (!GetModulesSnapshot(TH32CS_SNAPMODULE, pProcessInfo, CbCollectx64ModuleInfo))
+{
+	return FALSE;
+}
 	}
 
 	return TRUE;
@@ -535,6 +535,7 @@ BOOL CHookScanner::AnalyzePEInfo(LPVOID pBuffer, PPE_INFO pPeInfo)
 	CHECK_POINTER_NULL(pPeInfo, FALSE);
 
 	BOOL bRet = FALSE;
+	BOOL bIsWow64DLL = FALSE;
 
 	try
 	{
@@ -570,6 +571,12 @@ BOOL CHookScanner::AnalyzePEInfo(LPVOID pBuffer, PPE_INFO pPeInfo)
 		else
 		{
 			//64bit-exe load 64bit-DLL
+			//但事实上，explore.exe会加载32位的搜狗的resource.dll，虽不知道怎么调用的，但是会有这种特殊情况。这种情况暂不处理。
+			if (IsPE32DLL(pBuffer))
+			{
+				return FALSE;
+			}
+
 			PIMAGE_DOS_HEADER pDosHeader = NULL;
 			PIMAGE_OPTIONAL_HEADER64 pOptionalHeader64 = NULL;
 			pDosHeader = (PIMAGE_DOS_HEADER)pBuffer;
@@ -1480,6 +1487,7 @@ BOOL CHookScanner::ScanModuleEATHook64Inner(PMODULE_INFO pModuleInfo, LPVOID pDl
 				do 
 				{
 					//增加判断是否在代码区，否则总有类似全局变量的东西导出，而且存在于数据段。
+					//事实证明，这一步判断是必要的
 					BOOL bIsFuncCodeSection = IsFuncInCodeSection(pModuleInfo, (UINT64)pSimulateExportFuncAddr[wOrdinal]);
 					if (!bIsFuncCodeSection)
 					{
@@ -2734,4 +2742,11 @@ BOOL CHookScanner::IsFuncInCodeSection(PMODULE_INFO pModInfo, UINT64 dwOffset)
 	
 	//todo：是否需要确保dwOffset > dwAlignBase ？
 	return (UINT64)dwOffset < dwAlignSize + dwAlignBase;
+}
+
+BOOL CHookScanner::IsPE32DLL(LPVOID pBuffer)
+{
+	PIMAGE_DOS_HEADER pDosHeader = (PIMAGE_DOS_HEADER)((UINT64)pBuffer);
+	WORD* pMagic = (WORD*)((BYTE*)pBuffer + pDosHeader->e_lfanew + sizeof(DWORD) + sizeof(IMAGE_FILE_HEADER));
+	return 0x10B == *pMagic ? TRUE: FALSE;
 }

@@ -1,52 +1,59 @@
 #include "stdafx.h"
 #include "CHookScanner.h"
+#include <sstream>
+using namespace std;
 
 //int WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _In_ LPSTR lpCmdLine, _In_ int nShowCmd)
 //{
 //	//todo：解析cmdline
 //
 //}
-//
-//typedef struct _HOOK_RESULT
-//{
-//	//每个扫描结果保存一个Id
-//	DWORD dwHookId;
-//
-//	//对应的进程的ID
-//	DWORD dwProcessId;
-//
-//	//被Hook的地址
-//	LPVOID lpHookedAddr;
-//
-//	//应该恢复的地址，外部不需要知道
-//	LPVOID lpRecoverAddr;
-//
-//	//预留，暂不使用
-//	LPVOID lpReserved;
-//
-//	//Hook的三种类型之一
-//	HOOK_TYPE type;
-//
-//	//被Hook的进程
-//	wchar_t szProcess[MAX_PROCESS_NAME_LEN];
-//
-//	//被Hook的模块
-//	wchar_t szModule[MAX_MODULE_PATH_LEN];
-//
-//	//被Hook的函数
-//	wchar_t szFuncName[MAX_FUNCTION_LEN];
-//
-//	//从哪个DLL恢复。InlineHook恢复专用
-//	wchar_t szRecoverDLL[MAX_MODULE_PATH_LEN];
-//}HOOK_RESULT, * PHOOK_RESULT;
 
-void main()
+
+void PrintUsage()
 {
-	//Sleep(10*1000);
+	printf("Parameters Usage:\n");
+	printf("-s: Start Scan\n");//pid all
+	/*合法的参数示例 C:\MountTest5\ \\ ? \Volume{2f7e923a - 08dc - 11ed - b01c - 000c2936494c}\  */
+	printf("-u: Unhook .\n");//hook id all
+}
+
+//todo：内存占用较高，看看如何优化
+void wmain(int argc, wchar_t* argv[])
+{
+	UINT32 uPid = -1;
+	PrintUsage();
+
+	//todo：后面重新封装命令行解析
+	if (argc > 1)
+	{
+		//Scan.exe -s 111
+		if (wcscmp(argv[1], L"-s") == 0)
+		{
+			if (argc < 3)
+			{
+				PrintUsage();
+				return;
+			}
+			wstringstream ss;
+			ss << argv[2];
+			ss >> uPid;
+		}
+		else if (wcscmp(argv[1], L"-u") == 0)
+		{
+			
+		}
+	}
+	else
+	{
+		return;
+	}
+
+	//HOOK_SCAN:
 	int uSize = sizeof(ULONG);
 	CHookScanner R3APIHookScanner;
 
-	R3APIHookScanner.ScanProcessById(48860);
+	R3APIHookScanner.ScanProcessById(uPid);
 	std::vector<HOOK_RESULT> vecHookRes;
 	R3APIHookScanner.GetHookResult(vecHookRes);
 	for (auto i : vecHookRes)

@@ -340,7 +340,10 @@ private:
 	BOOL SuspendAllThreads(DWORD dwProcessId, DWORD* pThreadCount, HANDLE szThreadHandle[MAX_SUSPEND_THREAD]);
 	BOOL ResumeAllThreads(DWORD dwProcessId, DWORD dwThreadCount, HANDLE szThreadHandle[MAX_SUSPEND_THREAD]);
 	BOOL IsFuncInCodeSection(PMODULE_INFO, UINT64);
+
+	BOOL IsPE32DLL(LPVOID pBuffer);
 private:
+	//当前扫描的进程是否是64位的
 	BOOL m_bIsWow64;
 
 	DWORD dwHookResCount;
