@@ -3,12 +3,6 @@
 #include <sstream>
 using namespace std;
 
-//int WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _In_ LPSTR lpCmdLine, _In_ int nShowCmd)
-//{
-//	//todo：解析cmdline
-//
-//}
-
 
 void PrintUsage()
 {
@@ -17,7 +11,7 @@ void PrintUsage()
 	/*合法的参数示例 C:\MountTest5\ \\ ? \Volume{2f7e923a - 08dc - 11ed - b01c - 000c2936494c}\  */
 	printf("-u: Unhook .\n");//hook id all
 }
-
+//todo：增加gTest
 //todo：内存占用较高，看看如何优化
 void wmain(int argc, wchar_t* argv[])
 {
