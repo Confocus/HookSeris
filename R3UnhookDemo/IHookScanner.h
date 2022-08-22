@@ -33,6 +33,7 @@ typedef struct _HOOK_RESULT
 	//Hook的三种类型之一
 	HOOK_TYPE type;
 
+	//todo：处理同名进程去除钩子的问题
 	//被Hook的进程
 	wchar_t szProcess[MAX_PROCESS_NAME_LEN];
 

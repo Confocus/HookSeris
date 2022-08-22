@@ -6,7 +6,7 @@
 
 #define MAX_PROCESS_LEN			0x200
 #define MAX_MODULE_NAME_LEN		0x200
-#define INLINE_HOOK_CHECK_LEN	10
+#define INLINE_HOOK_CHECK_LEN	12
 #define MAX_SUSPEND_THREAD		0x400
 #include <vector>
 #include <unordered_map>
@@ -342,6 +342,8 @@ private:
 	BOOL IsFuncInCodeSection(PMODULE_INFO, UINT64);
 
 	BOOL IsPE32DLL(LPVOID pBuffer);
+
+	LPVOID QueryAndInsert(PMODULE_INFO);
 private:
 	//当前扫描的进程是否是64位的
 	BOOL m_bIsWow64;

@@ -79,6 +79,11 @@ void wmain(int argc, wchar_t* argv[])
 		printf("}");
 	}
 
+
+	//²âÊÔÕª¹³×Ó
+	R3APIHookScanner.UnHook();
+
+
 	/*HMODULE hMod = LoadLibrary(L"user32.dll");
 	LPVOID lp = (LPVOID)GetProcAddress(hMod, "DefDlgProcA");*/
 	//R3APIHookScanner.ScanAllProcesses();

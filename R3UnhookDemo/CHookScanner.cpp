@@ -10,6 +10,8 @@ using namespace std;
 int g_TestCount = 0;
 
 using namespace blackbone;
+//std::unordered_map<std::wstring, LPVOID> g_mapSimDLLCache;
+
 vector<PROCESS_INFO*> CHookScanner::m_vecProcessInfo;//无法解析的外部符号
 
 CHookScanner::CHookScanner():
@@ -337,6 +339,8 @@ BOOL CHookScanner::ScanProcess(PPROCESS_INFO pProcessInfo)
 	HANDLE hProcess = NULL;
 
 	//缓存下这个exe中所有载入的DLL对应的模拟载入
+	//火绒剑貌似是逐个DLL比较的，而不是一口气全部载入的。
+	////todo:memory
 	LoadALLModuleSimCache(pProcessInfo);
 
 	//遍历这个进程中的所有模块
@@ -363,12 +367,20 @@ BOOL CHookScanner::ScanProcess(PPROCESS_INFO pProcessInfo)
 			}
 		}
 		
+		//从保存的map中拿到模拟DLL
+		//todo:memory
+
+		//LPVOID lpSimDLLBuffer = SimulateLoadDLL(pModuleInfo);
+		/*LPVOID lpSimDLLBuffer = QueryAndInsert(pModuleInfo);
+		if (NULL == lpSimDLLBuffer)
+		{
+			continue;
+		}*/
 		pDllMemBuffer = GetModuleSimCache(pModuleInfo->szModulePath);
 		if (NULL == pDllMemBuffer)
 		{
 			continue;
 		}
-
 		ScanModuleIATHook(pModuleInfo, pDllMemBuffer);
 		ScanModuleEATHook(pModuleInfo, pDllMemBuffer);
 		ScanModuleInlineHook(pModuleInfo, pDllMemBuffer);
@@ -571,6 +583,7 @@ BOOL CHookScanner::AnalyzePEInfo(LPVOID pBuffer, PPE_INFO pPeInfo)
 		else
 		{
 			//64bit-exe load 64bit-DLL
+			
 			//但事实上，explore.exe会加载32位的搜狗的resource.dll，虽不知道怎么调用的，但是会有这种特殊情况。这种情况暂不处理。
 			if (IsPE32DLL(pBuffer))
 			{
@@ -1026,10 +1039,6 @@ BOOL CHookScanner::BuildImportTable64Inner(LPVOID pDllMemoryBuffer, PPE_INFO pPe
 				wchar_t* wcsFuncName = NULL;
 				pName = (PIMAGE_IMPORT_BY_NAME)((BYTE*)pDllMemoryBuffer + pSimulateOriginFirstThunk->u1.AddressOfData);
 
-				if (_stricmp(pName->Name, "D3DKMTNetDispQueryMiracastDisplayDeviceSupport") == 0)
-				{
-					printf("");
-				}
 				wcsFuncName = ConvertCharToWchar(pName->Name);
 				ExportAddr = GetExportFuncAddrByName(lpBackupBaseAddr, &ImportDLLInfo, wcsFuncName, pModuleInfo->szModuleName, wsRedirectedDLLName.c_str(), &lpFinalBase);				
 				FreeConvertedWchar(wcsFuncName);
@@ -1451,10 +1460,7 @@ BOOL CHookScanner::ScanModuleEATHook64Inner(PMODULE_INFO pModuleInfo, LPVOID pDl
 		wOrdinal = pOrdinalAddr[i];
 		char* pName = (char*)pModuleInfo->pDllBakupBaseAddr + pExportFuncName[i];
 		char* pSimName = (char*)pDllMemoryBuffer + pSimulateExportFuncName[i];
-		if (_stricmp(pName, "DefDlgProcA") == 0)
-		{
-			printf("");
-		}
+		
 		/*char* pFunc = (char*)pModuleInfo->pDllBaseAddr + pExportFuncAddr[wOrdinal];
 		char* pSimFunc = (char*)pDllMemoryBuffer + pSimulateExportFuncAddr[wOrdinal];*/
 
@@ -1502,6 +1508,13 @@ BOOL CHookScanner::ScanModuleEATHook64Inner(PMODULE_INFO pModuleInfo, LPVOID pDl
 						break;
 					}
 
+					//todo:memory
+					//LPVOID lpSimDLLBuffer = SimulateLoadDLL(pModuleInfo);
+					/*LPVOID lpSimDLLBuffer = QueryAndInsert(pModuleInfo);
+					if (!lpSimDLLBuffer)
+					{
+						break;
+					}*/
 					LPVOID lpSimDLLBase = NULL;
 					lpSimDLLBase = GetModuleSimCache(pModuleInfo->szModulePath);
 					if (!lpSimDLLBase)
@@ -1509,6 +1522,8 @@ BOOL CHookScanner::ScanModuleEATHook64Inner(PMODULE_INFO pModuleInfo, LPVOID pDl
 						break;
 					}
 					
+					//这里得改成只记录偏移
+					//SaveHookResult(HOOK_TYPE::InlineHook, pModuleInfo->szModulePath, wpName, (BYTE*)hModule + (UINT64)pExportFuncAddr[wOrdinal], pModuleInfo->szModulePath, (BYTE*)pSimulateExportFuncAddr[wOrdinal]);
 					SaveHookResult(HOOK_TYPE::InlineHook, pModuleInfo->szModulePath, wpName, (BYTE*)hModule + (UINT64)pExportFuncAddr[wOrdinal], pModuleInfo->szModulePath, (BYTE*)lpSimDLLBase + (UINT64)pSimulateExportFuncAddr[wOrdinal]);
 				} while (0);
 				
@@ -1773,11 +1788,6 @@ BOOL CHookScanner::ScanModule64InlineHook(PMODULE_INFO pModuleInfo, LPVOID pDllM
 			{
 				//拿到导入函数名，根据导入函数名，去查对应的DLL的导出函数地址
 				pName = (PIMAGE_IMPORT_BY_NAME)((BYTE*)pDllMemoryBuffer + pSimulateOriginFirstThunk->u1.AddressOfData);
-
-				if (strcmp(pName->Name, "CoRegisterClassObject") == 0)
-				{
-					printf("");
-				}
 				wcsFuncName = ConvertCharToWchar(pName->Name);
 				ExportAddr = GetExportFuncAddrByName(lpBackupBaseAddr, &ImportDLLInfo, wcsFuncName, pModuleInfo->szModuleName, wsRedirectedDLLName.c_str(), &lpFinalBase);
 			}
@@ -1794,6 +1804,10 @@ BOOL CHookScanner::ScanModule64InlineHook(PMODULE_INFO pModuleInfo, LPVOID pDllM
 					(UINT64)ExportAddr + (UINT64)lpFinalBase < (UINT64)p->pDllBaseAddr + p->dwSizeOfImage)
 				{
 					wcscpy_s(wcsRecoverDLL, wcslen(p->szModulePath) + 1, p->szModulePath);
+
+					//todo:memory
+					//lpSimDLLBase = SimulateLoadDLL(p);
+					//lpSimDLLBase = QueryAndInsert(p);
 					lpSimDLLBase = GetModuleSimCache(p->szModulePath);
 					lpRedirectBackupBaseAddr = FindBackupBaseAddrByName(p->szModuleName);
 					bIsFuncCodeSection = IsFuncInCodeSection(p, (UINT64)ExportAddr);
@@ -1817,6 +1831,7 @@ BOOL CHookScanner::ScanModule64InlineHook(PMODULE_INFO pModuleInfo, LPVOID pDllM
 				SaveHookResult(HOOK_TYPE::InlineHook, pModuleInfo->szModulePath, wcsFuncName, (BYTE*)lpFinalBase + (UINT64)ExportAddr, wcsRecoverDLL, (BYTE*)lpSimDLLBase + (UINT64)ExportAddr);
 				//printf("IAT Inlie Hook.\n");
 			}
+			//FreeSimulateDLL(&lpSimDLLBase);
 			FreeConvertedWchar(wcsFuncName);
 			//2、遍历其导出表
 			pSimulateOriginFirstThunk++;
@@ -2658,15 +2673,33 @@ BOOL CHookScanner::GetHookResult(std::vector<HOOK_RESULT>& vecHookRes)
 
 BOOL CHookScanner::UnHookWirteProcessMemory(HANDLE hProcess, PHOOK_RESULT pHookResult, UINT32 uLen)
 {
+	BOOL bRet = TRUE;
+	DWORD dwErr = 0;
 	DWORD dwOldAttr = 0;
 	CHECK_POINTER_NULL(pHookResult, FALSE);
 	CHECK_POINTER_NULL(pHookResult->lpHookedAddr, FALSE);
 	CHECK_POINTER_NULL(pHookResult->lpRecoverAddr, FALSE);
 
-	VirtualProtectEx(hProcess, pHookResult->lpHookedAddr, uLen, PAGE_EXECUTE_READWRITE, &dwOldAttr);
-	WriteProcessMemory(hProcess, pHookResult->lpHookedAddr, pHookResult->lpRecoverAddr, uLen, NULL);
-	VirtualProtectEx(hProcess, pHookResult->lpHookedAddr, uLen, dwOldAttr, NULL);
-	return TRUE;
+	if (!VirtualProtectEx(hProcess, pHookResult->lpHookedAddr, uLen, PAGE_EXECUTE_READWRITE, &dwOldAttr))
+	{
+		dwErr = GetLastError();
+		bRet = FALSE;
+	}
+
+	if (!WriteProcessMemory(hProcess, pHookResult->lpHookedAddr, pHookResult->lpRecoverAddr, uLen, NULL))
+	{
+		dwErr = GetLastError();
+		bRet = FALSE;
+	}
+
+	//这里一直会失败，不知道为什么？
+	if (!VirtualProtectEx(hProcess, pHookResult->lpHookedAddr, uLen, dwOldAttr, NULL))
+	{
+		dwErr = GetLastError();
+		//bRet = FALSE;
+	}
+
+	return bRet;
 }
 
 BOOL CHookScanner::SuspendAllThreads(DWORD dwProcessId, DWORD* pThreadCount, HANDLE szThreadHandle[MAX_SUSPEND_THREAD])
@@ -2749,4 +2782,18 @@ BOOL CHookScanner::IsPE32DLL(LPVOID pBuffer)
 	PIMAGE_DOS_HEADER pDosHeader = (PIMAGE_DOS_HEADER)((UINT64)pBuffer);
 	WORD* pMagic = (WORD*)((BYTE*)pBuffer + pDosHeader->e_lfanew + sizeof(DWORD) + sizeof(IMAGE_FILE_HEADER));
 	return 0x10B == *pMagic ? TRUE: FALSE;
+}
+
+LPVOID CHookScanner::QueryAndInsert(PMODULE_INFO pModule)
+{
+	return NULL;
+	/*if (g_mapSimDLLCache.find(pModule->szModulePath) == g_mapSimDLLCache.end())
+	{
+		LPVOID p = SimulateLoadDLL(pModule);
+		m_mapSimDLLCache[pModule->szModulePath] = p;
+		return p;
+	}
+
+
+	return g_mapSimDLLCache[pModule->szModulePath];*/
 }
