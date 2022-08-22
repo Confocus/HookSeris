@@ -4,6 +4,7 @@
 using namespace std;
 
 
+
 void PrintUsage()
 {
 	printf("Parameters Usage:\n");
@@ -12,7 +13,12 @@ void PrintUsage()
 	printf("-u: Unhook .\n");//hook id all
 }
 //todo：增加gTest
-//todo：内存占用较高，看看如何优化
+//todo：内存占用较高，看看如何优化:
+//1、根本不需要载入DLL全部镜像
+//2、只需要保存导入函数的入口点12个字节即可，修复完12字节即可释放多余的内存。
+//3、对于IATHook和EATHook，也只需要保存入口函数地址即可
+//4、之前之所以全部保存，是因为考虑有可能不是从函数入口点Hook的，可能在函数任意地方Hook。
+
 void wmain(int argc, wchar_t* argv[])
 {
 	UINT32 uPid = -1;
