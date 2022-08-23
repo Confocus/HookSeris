@@ -13,6 +13,44 @@
 
 using namespace std;
 
+enum class FUNC_TYPE
+{
+	Invalid = 0,
+	ImportFunc = 1,
+	ExportFunc = 2,
+};
+
+typedef struct _ORIGIN_FUNC_INFO
+{
+	//函数的真实的入口点的编码
+	BYTE		szFuncEntryCode[INLINE_HOOK_CHECK_LEN];
+	
+	//是导入函数还是导出函数
+	FUNC_TYPE	type;
+
+	//函数真实地址
+	UINT64		uFuncAddr;
+}ORIGIN_FUNC_INFO, *PORIGIN_FUNC_INFO;
+
+//函数名和函数地址的对应关系
+//using MAP_FuncAddr = std::unordered_map<std::wstring, UINT64>;
+//函数名和函数入口点编码
+//using MAP_FuncCode = std::unordered_map<std::wstring, BYTE[INLINE_HOOK_CHECK_LEN]>;
+
+////保存正常的DLL的各个监测点的数据
+//typedef struct _CHECK_POINTS
+//{
+//	//导入函数的各个地址
+//	std::unordered_map<std::wstring, MAP_FuncAddr> mapDLLImportFunc;
+//
+//	//导出函数的各个地址
+//	std::unordered_map<std::wstring, MAP_FuncAddr> mapDLLExportFunc;
+//
+//	//导入函数的入口的编码
+//	std::unordered_map<std::wstring, MAP_FuncCode> mapDLLEntryCode;
+//
+//}CHECK_POINTS, *PCHECK_POINTS;
+
 //todo：增加日志
 //
 //存储用得到的关键PE信息
@@ -369,4 +407,7 @@ private:
 	//缓存模拟载入的DLL镜像
 	std::unordered_map<std::wstring, LPVOID> m_mapSimDLLCache;
 	std::vector<HOOK_RESULT> m_vecHookRes;
+
+	//保存每个DLL所包含的原始的导入函数、导出函数信息（导入函数地址、导出函数地址、函数入口点编码）
+	std::unordered_map<std::wstring, ORIGIN_FUNC_INFO> m_mapDLLOriginFuncInfo;
 };
