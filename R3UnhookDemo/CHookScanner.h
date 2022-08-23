@@ -32,25 +32,6 @@ typedef struct _ORIGIN_FUNC_INFO
 	UINT64		uFuncAddr;
 }ORIGIN_FUNC_INFO, *PORIGIN_FUNC_INFO;
 
-//函数名和函数地址的对应关系
-//using MAP_FuncAddr = std::unordered_map<std::wstring, UINT64>;
-//函数名和函数入口点编码
-//using MAP_FuncCode = std::unordered_map<std::wstring, BYTE[INLINE_HOOK_CHECK_LEN]>;
-
-////保存正常的DLL的各个监测点的数据
-//typedef struct _CHECK_POINTS
-//{
-//	//导入函数的各个地址
-//	std::unordered_map<std::wstring, MAP_FuncAddr> mapDLLImportFunc;
-//
-//	//导出函数的各个地址
-//	std::unordered_map<std::wstring, MAP_FuncAddr> mapDLLExportFunc;
-//
-//	//导入函数的入口的编码
-//	std::unordered_map<std::wstring, MAP_FuncCode> mapDLLEntryCode;
-//
-//}CHECK_POINTS, *PCHECK_POINTS;
-
 //todo：增加日志
 //
 //存储用得到的关键PE信息

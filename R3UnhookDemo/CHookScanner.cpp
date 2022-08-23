@@ -462,10 +462,14 @@ LPVOID CHookScanner::SimulateLoadDLL(PMODULE_INFO pModuleInfo)
 	HANDLE hFile = NULL;
 	DWORD dwBytesRead = 0;
 	const DWORD dwBufferSize = pModuleInfo->dwSizeOfImage;
-	LPVOID pDllImageBuffer = NULL;//DLL磁盘上的样子
-	LPVOID pDllMemoryBuffer = NULL;//DLL模拟载入内存中的样子
+	//LPVOID pDllImageBuffer = NULL;//DLL磁盘上的样子
+	//LPVOID pDllMemoryBuffer = NULL;//DLL模拟载入内存中的样子
 	PE_INFO PEImageInfo = { 0 };
-	
+	LPSTR pDiskMapView = NULL;
+	LPSTR pMemoryMapView = NULL;
+	HANDLE hDiskImage = NULL;
+	HANDLE hMemoryImage = NULL;
+
 	do 
 	{
 		hFile = CreateFile(pModuleInfo->szModulePath, GENERIC_READ, FILE_SHARE_READ, 0, OPEN_EXISTING, 0, 0);
@@ -474,10 +478,46 @@ LPVOID CHookScanner::SimulateLoadDLL(PMODULE_INFO pModuleInfo)
 			break;
 		}
 
-		pDllImageBuffer = new(std::nothrow) BYTE[dwBufferSize];
-		pDllMemoryBuffer = new(std::nothrow) BYTE[dwBufferSize];
+		SECURITY_ATTRIBUTES sa;
+		SECURITY_DESCRIPTOR sd;
+		InitializeSecurityDescriptor(&sd, SECURITY_DESCRIPTOR_REVISION);
+		SetSecurityDescriptorDacl(&sd, TRUE, nullptr, FALSE);
+		sa.nLength = sizeof(SECURITY_ATTRIBUTES);
+		sa.lpSecurityDescriptor = &sd;
+		sa.bInheritHandle = FALSE;
+		hDiskImage = CreateFileMapping(hFile, NULL, PAGE_READONLY, 0, dwBufferSize, NULL);
+		hMemoryImage = CreateFileMapping(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, dwBufferSize, NULL);
+		if (NULL == hDiskImage || NULL == hMemoryImage)
+		{
+			DWORD dwErr = GetLastError();
+			break;
+		}
 
-		if (pDllImageBuffer && pDllMemoryBuffer)
+		pDiskMapView = (LPSTR)MapViewOfFile(hDiskImage, FILE_MAP_READ, 0, 0, 0);
+		pMemoryMapView = (LPSTR)MapViewOfFile(hMemoryImage, FILE_MAP_READ | FILE_MAP_WRITE, 0, 0, 0);
+		if (!pDiskMapView || !pMemoryMapView)
+		{
+			DWORD dwErr = GetLastError();
+			break;
+		}
+
+		if (!AnalyzePEInfo(pDiskMapView, &PEImageInfo))
+		{
+			break;
+		}
+
+		for (int i = 0; i < PEImageInfo.dwSectionCnt; i++)
+		{
+			DWORD dwSizeOfRawData = AlignSize(PEImageInfo.szSectionHeader[i].SizeOfRawData, PEImageInfo.dwFileAlign);
+			memcpy_s((LPVOID)((UINT64)pMemoryMapView + PEImageInfo.szSectionHeader[i].VirtualAddress),
+				dwSizeOfRawData,
+				(LPVOID)((UINT64)pDiskMapView + PEImageInfo.szSectionHeader[i].PointerToRawData),
+				dwSizeOfRawData);
+		}
+		/*pDllImageBuffer = new(std::nothrow) BYTE[dwBufferSize];
+		pDllMemoryBuffer = new(std::nothrow) BYTE[dwBufferSize];*/
+
+		/*if (pDllImageBuffer && pDllMemoryBuffer)
 		{
 			ZeroMemory(pDllMemoryBuffer, dwBufferSize);
 			if (!ReadFile(hFile, pDllImageBuffer, dwBufferSize, &dwBytesRead, NULL))
@@ -504,15 +544,15 @@ LPVOID CHookScanner::SimulateLoadDLL(PMODULE_INFO pModuleInfo)
 					(LPVOID)((UINT64)pDllImageBuffer + PEImageInfo.szSectionHeader[i].PointerToRawData),
 					dwSizeOfRawData);
 			}
-		}
+		}*/
 
 		//修复重定位表
-		if (!FixBaseReloc(pDllMemoryBuffer, &PEImageInfo, pModuleInfo->pDllBaseAddr))
+		if (!FixBaseReloc(pMemoryMapView, &PEImageInfo, pModuleInfo->pDllBaseAddr))
 		{
 			break;
 		}
 		//建立导入表
-		if (!BuildImportTable(pDllMemoryBuffer, &PEImageInfo, pModuleInfo))
+		if (!BuildImportTable(pMemoryMapView, &PEImageInfo, pModuleInfo))
 		{
 			break;
 		}
@@ -520,15 +560,30 @@ LPVOID CHookScanner::SimulateLoadDLL(PMODULE_INFO pModuleInfo)
 		bRet = TRUE;
 	} while (FALSE);
 
-	if (pDllImageBuffer)
+	if (pDiskMapView)
+	{
+		UnmapViewOfFile(pDiskMapView);
+		pDiskMapView = NULL;
+	}
+
+	/*if (pDllImageBuffer)
 	{
 		delete[] pDllImageBuffer;
 		pDllImageBuffer = NULL;
+	}*/
+
+	if (INVALID_HANDLE_VALUE != hFile)
+	{
+		CloseHandle(hFile);
 	}
 
-	CloseHandle(hFile);
+	if (NULL != hDiskImage)
+	{
+		CloseHandle(hDiskImage);
+		hDiskImage = NULL;
+	}
 
-	return bRet ? pDllMemoryBuffer : NULL;
+	return bRet ? pMemoryMapView : NULL;
 }
 
 VOID CHookScanner::FreeSimulateDLL(LPVOID* ppDllMemoryBuffer)
@@ -2418,7 +2473,9 @@ BOOL CHookScanner::LoadALLModuleSimCache(PPROCESS_INFO pProcessInfo)
 	for (auto pModuleInfo : pProcessInfo->m_vecModuleInfo)
 	{
 		LPVOID lpSimDLLBuffer = SimulateLoadDLL(pModuleInfo);
+		//保存新增的那些信息
 		m_mapSimDLLCache.insert(std::make_pair(pModuleInfo->szModulePath, lpSimDLLBuffer));
+
 	}
 
 	return TRUE;
@@ -2427,7 +2484,8 @@ BOOL CHookScanner::LoadALLModuleSimCache(PPROCESS_INFO pProcessInfo)
 VOID CHookScanner::ReleaseALLModuleSimCache()
 {
 	for (auto p : m_mapSimDLLCache) {
-		FreeSimulateDLL(&p.second);
+		UnmapViewOfFile(&p.second);
+		//FreeSimulateDLL(&p.second);
 	}
 
 	m_mapSimDLLCache.clear();
