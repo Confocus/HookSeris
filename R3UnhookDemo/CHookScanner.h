@@ -387,6 +387,9 @@ private:
 
 	//缓存模拟载入的DLL镜像
 	std::unordered_map<std::wstring, LPVOID> m_mapSimDLLCache;
+
+	std::unordered_map<std::wstring, HANDLE> m_mapDLLMappingHandle;
+
 	std::vector<HOOK_RESULT> m_vecHookRes;
 
 	//保存每个DLL所包含的原始的导入函数、导出函数信息（导入函数地址、导出函数地址、函数入口点编码）

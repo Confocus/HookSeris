@@ -80,8 +80,12 @@ void wmain(int argc, wchar_t* argv[])
 	}
 
 
+	while (1)
+	{
+
+	}
 	//²âÊÔÕª¹³×Ó
-	R3APIHookScanner.UnHook();
+	//R3APIHookScanner.UnHook();
 
 
 	/*HMODULE hMod = LoadLibrary(L"user32.dll");
