@@ -84,7 +84,6 @@ void wmain(int argc, wchar_t* argv[])
 	/*R3APIHookScanner.UnHook(230);*/
 	//printf("xxx");
 
-	
 	printf("\nfinish..\n");
 	getchar();
 	return;

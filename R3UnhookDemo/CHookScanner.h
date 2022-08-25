@@ -85,6 +85,7 @@ typedef struct _PROCESS_INFO
 		if (hProcess)
 		{
 			CloseHandle(hProcess);
+			hProcess = NULL;
 		}
 
 		if (m_vecModuleInfo.size() > 0)

@@ -135,6 +135,7 @@ BOOL CHookScanner::ScanProcessById(DWORD dwProcessId)
 			break;
 		}
 	}
+	_Clear();
 
 	return bRet;
 }
@@ -171,7 +172,7 @@ BOOL CHookScanner::_Clear()
 	}
 
 	m_vecProcessInfo.clear();
-	m_vecHookRes.clear();
+	//m_vecHookRes.clear();
 
 	return TRUE;
 }
