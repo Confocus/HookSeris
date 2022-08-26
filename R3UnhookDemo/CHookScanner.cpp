@@ -125,6 +125,7 @@ BOOL CHookScanner::ScanProcessById(DWORD dwProcessId)
 				break;
 			}
 
+			//枚举待扫描进程的所有模块，优化内存版本这里不统一拷贝了，要不然占内存太高
 			if (!EmurateModules(pProcessInfo))
 			{
 				break;
@@ -135,7 +136,7 @@ BOOL CHookScanner::ScanProcessById(DWORD dwProcessId)
 			break;
 		}
 	}
-
+	_Clear();
 	return bRet;
 }
 
@@ -171,7 +172,7 @@ BOOL CHookScanner::_Clear()
 	}
 
 	m_vecProcessInfo.clear();
-	m_vecHookRes.clear();
+	//m_vecHookRes.clear();
 
 	return TRUE;
 }
@@ -252,7 +253,7 @@ if (bIsSelfWow64)
 	return FALSE;
 }
 
-if (!GetModulesSnapshot(TH32CS_SNAPMODULE, pProcessInfo, CbCollectx64ModuleInfo))
+if (!GetModulesSnapshot(TH32CS_SNAPMODULE, pProcessInfo, CbCollectx64ModuleInfoNoRemoteRead))
 {
 	return FALSE;
 }
@@ -344,10 +345,23 @@ BOOL CHookScanner::ScanProcess(PPROCESS_INFO pProcessInfo)
 	LoadALLModuleSimCache(pProcessInfo);
 
 	//遍历这个进程中的所有模块
-	//todo:也要考虑快照的时效性的问题
+	//todo:也要考虑快照的时效性的问题，有可能你操作的时候，这个模块已经被卸载了
 	for (auto pModuleInfo : pProcessInfo->m_vecModuleInfo)
 	{
 		LPVOID pDllMemBuffer = NULL;
+		DWORD dwOldAttr = 0;
+		//这个时候再去读模块的内容
+		pModuleInfo->pDllBakupBaseAddr = new(std::nothrow) BYTE[pModuleInfo->dwSizeOfImage];
+		if (NULL == pModuleInfo->pDllBakupBaseAddr)
+		{
+			return FALSE;
+		}
+
+		ZeroMemory(pModuleInfo->pDllBakupBaseAddr, pModuleInfo->dwSizeOfImage);
+		VirtualProtectEx(pProcessInfo->hProcess, pModuleInfo->pDllBaseAddr, pModuleInfo->dwSizeOfImage, PAGE_EXECUTE_READWRITE, &dwOldAttr);
+		ReadProcessMemory(pProcessInfo->hProcess, pModuleInfo->pDllBaseAddr, pModuleInfo->pDllBakupBaseAddr, pModuleInfo->dwSizeOfImage, 0);
+		VirtualProtectEx(pProcessInfo->hProcess, pModuleInfo->pDllBaseAddr, pModuleInfo->dwSizeOfImage, dwOldAttr, NULL);
+
 		if (m_bIsWow64)
 		{
 #ifdef _WIN32
@@ -384,6 +398,12 @@ BOOL CHookScanner::ScanProcess(PPROCESS_INFO pProcessInfo)
 		ScanModuleIATHook(pModuleInfo, pDllMemBuffer);
 		ScanModuleEATHook(pModuleInfo, pDllMemBuffer);
 		ScanModuleInlineHook(pModuleInfo, pDllMemBuffer);
+
+		if (pModuleInfo->pDllBakupBaseAddr)
+		{
+			delete[] pModuleInfo->pDllBakupBaseAddr;
+			pModuleInfo->pDllBakupBaseAddr = NULL;
+		}
 	}
 
 	ReleaseALLModuleSimCache();
@@ -540,6 +560,7 @@ LPVOID CHookScanner::SimulateLoadDLL(PMODULE_INFO pModuleInfo)
 	if (INVALID_HANDLE_VALUE != hFile)
 	{
 		CloseHandle(hFile);
+		hFile = INVALID_HANDLE_VALUE;
 	}
 
 	if (NULL != hDiskImage)
@@ -2087,16 +2108,29 @@ BOOL CHookScanner::CbCollectx64ModuleInfo(PPROCESS_INFO pProcessInfo, PMODULE_IN
 	DWORD dwErrCode = 0;
 	DWORD dwOldAttr = 0;
 	pModuleInfo->pDllBakupBaseAddr = new(std::nothrow) BYTE[pModuleInfo->dwSizeOfImage];
-	ZeroMemory(pModuleInfo->pDllBakupBaseAddr, pModuleInfo->dwSizeOfImage);
 	if (NULL == pModuleInfo->pDllBakupBaseAddr)
 	{
 		return FALSE;
 	}
 
+	ZeroMemory(pModuleInfo->pDllBakupBaseAddr, pModuleInfo->dwSizeOfImage);
+	
+
+	//todo：这里要考虑其它进程中的模块被卸载的情况
+	//读取其它进程的内存然后保存一份
 	VirtualProtectEx(pProcessInfo->hProcess, pModuleInfo->pDllBaseAddr, pModuleInfo->dwSizeOfImage, PAGE_EXECUTE_READWRITE, &dwOldAttr);
 	ReadProcessMemory(pProcessInfo->hProcess, pModuleInfo->pDllBaseAddr, pModuleInfo->pDllBakupBaseAddr, pModuleInfo->dwSizeOfImage, 0);
 	VirtualProtectEx(pProcessInfo->hProcess, pModuleInfo->pDllBaseAddr, pModuleInfo->dwSizeOfImage, dwOldAttr, NULL);
 
+	pProcessInfo->m_vecModuleInfo.push_back(pModuleInfo);
+
+	return TRUE;
+}
+
+BOOL CHookScanner::CbCollectx64ModuleInfoNoRemoteRead(PPROCESS_INFO pProcessInfo, PMODULE_INFO pModuleInfo)
+{
+	CHECK_POINTER_NULL(pProcessInfo, FALSE);
+	CHECK_POINTER_NULL(pModuleInfo, FALSE);
 	pProcessInfo->m_vecModuleInfo.push_back(pModuleInfo);
 
 	return TRUE;

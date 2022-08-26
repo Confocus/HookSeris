@@ -334,6 +334,7 @@ private:
 	static BOOL WINAPI CbCollectx86ModuleInfo(PPROCESS_INFO pProcessInfo, PMODULE_INFO pModuleInfo);
 	static BOOL WINAPI CbCollectWow64Sys32ModuleInfo(PPROCESS_INFO pProcessInfo, PMODULE_INFO pModuleInfo);
 	static BOOL WINAPI CbRemoveSys32ModuleInfo(PPROCESS_INFO pProcessInfo, PMODULE_INFO pModuleInfo);
+	static BOOL WINAPI CbCollectx64ModuleInfoNoRemoteRead(PPROCESS_INFO pProcessInfo, PMODULE_INFO pModuleInfo);
 
 	wchar_t* ConvertCharToWchar(const char* p);
 	VOID FreeConvertedWchar(wchar_t* &p);
