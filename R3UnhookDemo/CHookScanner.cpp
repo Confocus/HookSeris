@@ -348,6 +348,11 @@ BOOL CHookScanner::ScanProcess(PPROCESS_INFO pProcessInfo)
 	//todo:也要考虑快照的时效性的问题，有可能你操作的时候，这个模块已经被卸载了
 	for (auto pModuleInfo : pProcessInfo->m_vecModuleInfo)
 	{
+
+		if (wcscmp(pModuleInfo->szModuleName, L"comctl32.dll") == 0)
+		{
+			printf("");
+		}
 		LPVOID pDllMemBuffer = NULL;
 		DWORD dwOldAttr = 0;
 		//这个时候再去读模块的内容
@@ -1646,6 +1651,10 @@ BOOL CHookScanner::ScanModule32InlineHook(PMODULE_INFO pModuleInfo, LPVOID pDllM
 
 	for (int i = 0; i < dwImportTableCount && pSimulateOriginImportTableVA->Name; i++)
 	{
+		if (39 == i)
+		{
+			printf("");
+		}
 		LPVOID lpBaseAddr = NULL;
 		LPVOID lpBackupBaseAddr = NULL;
 		LPVOID lpRedirectBackupBaseAddr = NULL;
@@ -1709,18 +1718,26 @@ BOOL CHookScanner::ScanModule32InlineHook(PMODULE_INFO pModuleInfo, LPVOID pDllM
 				pName = (PIMAGE_IMPORT_BY_NAME)((BYTE*)pDllMemoryBuffer + pSimulateOriginFirstThunk->u1.AddressOfData);
 				wcsFuncName = ConvertCharToWchar(pName->Name);
 				ExportAddr = GetExportFuncAddrByName(lpBackupBaseAddr, &ImportDLLInfo, wcsFuncName, pModuleInfo->szModuleName, wsRedirectedDLLName.c_str(), &lpBase);
+				if (wcscmp(wcsFuncName, L"DefWindowProcW") == 0)
+				{
+					printf("");
+				}
 			}
 
+
+			
 			if (!lpBase)
 			{
 				lpBase = lpBaseAddr;
 			}
 
+			int nCount = 0;
 			for (auto p : m_pScannedProcess->m_vecModuleInfo)
 			{
 				if ((UINT64)ExportAddr + (UINT64)lpBase > (UINT64)p->pDllBaseAddr &&
 					(UINT64)ExportAddr + (UINT64)lpBase < (UINT64)p->pDllBaseAddr + p->dwSizeOfImage)
 				{
+					nCount++;
 					wcscpy_s(wcsRecoverDLL, wcslen(p->szModulePath) + 1, p->szModulePath);
 					lpSimDLLBase = GetModuleSimCache(p->szModulePath);
 					lpRedirectBackupBaseAddr = FindBackupBaseAddrByName(p->szModuleName);
@@ -2484,6 +2501,10 @@ BOOL CHookScanner::LoadALLModuleSimCache(PPROCESS_INFO pProcessInfo)
 	//直接把待分析的DLL都缓存下来
 	for (auto pModuleInfo : pProcessInfo->m_vecModuleInfo)
 	{
+		if (wcscmp(pModuleInfo->szModuleName, L"comctl32.dll") == 0)
+		{
+			printf("");
+		}
 		LPVOID lpSimDLLBuffer = SimulateLoadDLL(pModuleInfo);
 		//保存新增的那些信息
 		m_mapSimDLLCache.insert(std::make_pair(pModuleInfo->szModulePath, lpSimDLLBuffer));
