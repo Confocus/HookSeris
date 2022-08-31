@@ -342,6 +342,7 @@ BOOL CHookScanner::ScanProcess(PPROCESS_INFO pProcessInfo)
 	//缓存下这个exe中所有载入的DLL对应的模拟载入
 	//火绒剑貌似是逐个DLL比较的，而不是一口气全部载入的。
 	////todo:memory
+	//模拟载入所有的“正确的”DLL的样子
 	LoadALLModuleSimCache(pProcessInfo);
 
 	//遍历这个进程中的所有模块
@@ -402,7 +403,8 @@ BOOL CHookScanner::ScanProcess(PPROCESS_INFO pProcessInfo)
 		}
 		ScanModuleIATHook(pModuleInfo, pDllMemBuffer);
 		ScanModuleEATHook(pModuleInfo, pDllMemBuffer);
-		ScanModuleInlineHook(pModuleInfo, pDllMemBuffer);
+		//这行代码暂时不用也应该能查出inline Hook
+		//ScanModuleInlineHook(pModuleInfo, pDllMemBuffer);
 
 		if (pModuleInfo->pDllBakupBaseAddr)
 		{
@@ -1734,10 +1736,11 @@ BOOL CHookScanner::ScanModule32InlineHook(PMODULE_INFO pModuleInfo, LPVOID pDllM
 			int nCount = 0;
 			for (auto p : m_pScannedProcess->m_vecModuleInfo)
 			{
+				nCount++;
 				if ((UINT64)ExportAddr + (UINT64)lpBase > (UINT64)p->pDllBaseAddr &&
 					(UINT64)ExportAddr + (UINT64)lpBase < (UINT64)p->pDllBaseAddr + p->dwSizeOfImage)
 				{
-					nCount++;
+					
 					wcscpy_s(wcsRecoverDLL, wcslen(p->szModulePath) + 1, p->szModulePath);
 					lpSimDLLBase = GetModuleSimCache(p->szModulePath);
 					lpRedirectBackupBaseAddr = FindBackupBaseAddrByName(p->szModuleName);
@@ -2116,6 +2119,7 @@ BOOL CHookScanner::CbCollectProcessInfo(PPROCESS_INFO pProcessInfo, PBOOL pBreak
 	return TRUE;
 }
 
+//读取远程进程中的模块的数据到自己的内存中
 BOOL CHookScanner::CbCollectx64ModuleInfo(PPROCESS_INFO pProcessInfo, PMODULE_INFO pModuleInfo)
 {
 	CHECK_POINTER_NULL(pProcessInfo, FALSE);
@@ -2206,6 +2210,11 @@ BOOL WINAPI CHookScanner::CbCollectWow64Sys32ModuleInfo(PPROCESS_INFO pProcessIn
 	ULONG dwReadByte = 0;
 	DWORD dwErrCode = 0;
 	DWORD dwOldAttr = 0;
+
+	if (wcscmp(pModuleInfo->szModuleName, L"ntdll.dll") == 0)
+	{
+		printf("");
+	}
 	pModuleInfo->pDllBakupBaseAddr = new(std::nothrow) BYTE[pModuleInfo->dwSizeOfImage];
 	ZeroMemory(pModuleInfo->pDllBakupBaseAddr, pModuleInfo->dwSizeOfImage);
 	if (NULL == pModuleInfo->pDllBakupBaseAddr)
@@ -2501,10 +2510,6 @@ BOOL CHookScanner::LoadALLModuleSimCache(PPROCESS_INFO pProcessInfo)
 	//直接把待分析的DLL都缓存下来
 	for (auto pModuleInfo : pProcessInfo->m_vecModuleInfo)
 	{
-		if (wcscmp(pModuleInfo->szModuleName, L"comctl32.dll") == 0)
-		{
-			printf("");
-		}
 		LPVOID lpSimDLLBuffer = SimulateLoadDLL(pModuleInfo);
 		//保存新增的那些信息
 		m_mapSimDLLCache.insert(std::make_pair(pModuleInfo->szModulePath, lpSimDLLBuffer));
