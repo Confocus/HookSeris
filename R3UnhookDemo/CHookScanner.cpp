@@ -468,6 +468,8 @@ BOOL CHookScanner::SetScanedProcess(PPROCESS_INFO pProcessInfo)
 		dwErrCode = GetLastError();
 		return FALSE;
 	}
+
+	//保存正在扫描的进程的句柄和PID
 	pProcessInfo->hProcess = hProcess;
 	m_pScannedProcess = pProcessInfo;
 
@@ -481,7 +483,7 @@ PPROCESS_INFO CHookScanner::GetScannedProcess()
 	return m_pScannedProcess;
 }
 
-LPVOID CHookScanner::SimulateLoadDLL(PMODULE_INFO pModuleInfo)
+LPVOID CHookScanner::SimulateLoadDLLByMap(PMODULE_INFO pModuleInfo)
 {
 	CHECK_POINTER_NULL(pModuleInfo, NULL);
 
@@ -534,6 +536,7 @@ LPVOID CHookScanner::SimulateLoadDLL(PMODULE_INFO pModuleInfo)
 			break;
 		}
 
+		//内存映射没拷贝PE头等与Hook无关的内容
 		for (int i = 0; i < PEImageInfo.dwSectionCnt; i++)
 		{
 			DWORD dwSizeOfRawData = AlignSize(PEImageInfo.szSectionHeader[i].SizeOfRawData, PEImageInfo.dwFileAlign);
@@ -590,6 +593,83 @@ LPVOID CHookScanner::SimulateLoadDLL(PMODULE_INFO pModuleInfo)
 	}
 
 	return bRet ? pMemoryMapView : NULL;
+}
+
+LPVOID CHookScanner::SimulateLoadDLLByRead(PMODULE_INFO pModuleInfo)
+{
+	CHECK_POINTER_NULL(pModuleInfo, NULL);
+
+	BOOL bRet = FALSE;
+	HANDLE hFile = NULL;
+	DWORD dwBytesRead = 0;
+	const DWORD dwBufferSize = pModuleInfo->dwSizeOfImage;
+	LPVOID pDllImageBuffer = NULL;//DLL磁盘上的样子
+	LPVOID pDllMemoryBuffer = NULL;//DLL模拟载入内存中的样子
+	PE_INFO PEImageInfo = { 0 };
+
+	do
+	{
+		hFile = CreateFile(pModuleInfo->szModulePath, GENERIC_READ, FILE_SHARE_READ, 0, OPEN_EXISTING, 0, 0);
+		if (INVALID_HANDLE_VALUE == hFile)
+		{
+			break;
+		}
+
+		pDllImageBuffer = new(std::nothrow) BYTE[dwBufferSize];
+		pDllMemoryBuffer = new(std::nothrow) BYTE[dwBufferSize];
+
+		if (pDllImageBuffer && pDllMemoryBuffer)
+		{
+			ZeroMemory(pDllMemoryBuffer, dwBufferSize);
+			if (!ReadFile(hFile, pDllImageBuffer, dwBufferSize, &dwBytesRead, NULL))
+			{
+				break;
+			}
+
+			SetFilePointer(hFile, NULL, NULL, FILE_BEGIN);
+			if (!ReadFile(hFile, pDllMemoryBuffer, dwBufferSize, &dwBytesRead, NULL))
+			{
+				break;
+			}
+
+			if (!AnalyzePEInfo(pDllImageBuffer, &PEImageInfo))
+			{
+				break;
+			}
+
+			for (int i = 0; i < PEImageInfo.dwSectionCnt; i++)
+			{
+				DWORD dwSizeOfRawData = AlignSize(PEImageInfo.szSectionHeader[i].SizeOfRawData, PEImageInfo.dwFileAlign);
+				memcpy_s((LPVOID)((UINT64)pDllMemoryBuffer + PEImageInfo.szSectionHeader[i].VirtualAddress),
+					dwSizeOfRawData,
+					(LPVOID)((UINT64)pDllImageBuffer + PEImageInfo.szSectionHeader[i].PointerToRawData),
+					dwSizeOfRawData);
+			}
+		}
+
+		//修复重定位表
+		if (!FixBaseReloc(pDllMemoryBuffer, &PEImageInfo, pModuleInfo->pDllBaseAddr))
+		{
+			break;
+		}
+		//建立导入表
+		if (!BuildImportTable(pDllMemoryBuffer, &PEImageInfo, pModuleInfo))
+		{
+			break;
+		}
+
+		bRet = TRUE;
+	} while (FALSE);
+
+	if (pDllImageBuffer)
+	{
+		delete[] pDllImageBuffer;
+		pDllImageBuffer = NULL;
+	}
+
+	CloseHandle(hFile);
+
+	return bRet ? pDllMemoryBuffer : NULL;
 }
 
 VOID CHookScanner::FreeSimulateDLL(LPVOID* ppDllMemoryBuffer)
@@ -2510,7 +2590,7 @@ BOOL CHookScanner::LoadALLModuleSimCache(PPROCESS_INFO pProcessInfo)
 	//直接把待分析的DLL都缓存下来
 	for (auto pModuleInfo : pProcessInfo->m_vecModuleInfo)
 	{
-		LPVOID lpSimDLLBuffer = SimulateLoadDLL(pModuleInfo);
+		LPVOID lpSimDLLBuffer = SimulateLoadDLLByMap(pModuleInfo);
 		//保存新增的那些信息
 		m_mapSimDLLCache.insert(std::make_pair(pModuleInfo->szModulePath, lpSimDLLBuffer));
 
@@ -2700,7 +2780,7 @@ BOOL CHookScanner::UnHookInlineHook(PPROCESS_INFO pProcessInfo, PHOOK_RESULT pHo
 	}
 
 	//重新载入那个摘钩子需要的DLL
-	lpSimDLLBufferForUnhook = SimulateLoadDLL(pModuleInfo);
+	lpSimDLLBufferForUnhook = SimulateLoadDLLByRead(pModuleInfo);
 	if (!lpSimDLLBufferForUnhook)
 	{
 		return FALSE;
@@ -2724,15 +2804,42 @@ BOOL CHookScanner::UnHookInlineHook(PPROCESS_INFO pProcessInfo, PHOOK_RESULT pHo
 
 BOOL CHookScanner::UnHook()
 {
-	PPROCESS_INFO pProcessInfo = GetScannedProcess();
-	if (!pProcessInfo)
+	//这里每次摘取钩子，会根据钩子信息中的PID去取模块信息
+	for (auto hr : m_vecHookRes)
 	{
-		return FALSE;
-	}
+		PPROCESS_INFO pProcessInfo = NULL;
+		//拿到所有进程
+		if (!EmurateProcesses(CbCollectProcessInfo))
+		{
+			return FALSE;
+		}
 
-	for (auto p : m_vecHookRes)
-	{
-		UnHookInner(pProcessInfo, &p);
+		for (PPROCESS_INFO pi : m_vecProcessInfo)
+		{
+			if (hr.dwProcessId == pi->dwProcessId)
+			{
+				//todo：判断进程是否有变化
+				if (!SetScanedProcess(pi))
+				{
+					break;
+				}
+
+				if (EmurateModules(pi))
+				{
+					pProcessInfo = pi;
+					break;
+				}
+			}
+		}
+
+		if (!pProcessInfo)
+		{
+			return FALSE;
+		}
+
+		UnHookInner(pProcessInfo, &hr);
+
+		_Clear();
 	}
 	return TRUE;
 }
@@ -2745,12 +2852,6 @@ BOOL CHookScanner::UnHook(DWORD dwHookId)
 	}
 
 	PHOOK_RESULT pHookResult = NULL;
-	PPROCESS_INFO pProcessInfo = GetScannedProcess();
-	if (!pProcessInfo)
-	{
-		return FALSE;
-	}
-
 	for(auto iter = m_vecHookRes.begin(); iter != m_vecHookRes.end(); iter++)
 	{
 		if (dwHookId == iter->dwHookId)
@@ -2765,8 +2866,39 @@ BOOL CHookScanner::UnHook(DWORD dwHookId)
 		return FALSE;
 	}
 
+	PPROCESS_INFO pProcessInfo = NULL;
+	//拿到所有进程
+	if (!EmurateProcesses(CbCollectProcessInfo))
+	{
+		return FALSE;
+	}
+
+	for (PPROCESS_INFO pi : m_vecProcessInfo)
+	{
+		if (pHookResult->dwProcessId == pi->dwProcessId)
+		{
+			//todo：判断进程是否有变化
+			if (!SetScanedProcess(pi))
+			{
+				break;
+			}
+
+			if (EmurateModules(pi))
+			{
+				pProcessInfo = pi;
+				break;
+			}
+		}
+	}
+
+	if (!pProcessInfo)
+	{
+		return FALSE;
+	}
+
 	UnHookInner(pProcessInfo, pHookResult);
-		
+	_Clear();
+
 	return TRUE;
 }
 

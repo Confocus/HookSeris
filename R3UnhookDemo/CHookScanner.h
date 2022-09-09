@@ -101,6 +101,11 @@ typedef struct _PROCESS_INFO
 
 	~_PROCESS_INFO()
 	{
+		Clear();
+	}
+
+	VOID Clear()
+	{
 		if (hProcess)
 		{
 			CloseHandle(hProcess);
@@ -148,6 +153,7 @@ public:
 	*
 	* @return
 	*/
+	//暂时不要用这个
 	BOOL ScanAllProcesses();
 
 	/**
@@ -224,7 +230,8 @@ private:
 	* @param pModuleInfo : 指向DLL信息相关数据
 	* @return
 	*/
-	LPVOID SimulateLoadDLL(PMODULE_INFO pModuleInfo);
+	LPVOID SimulateLoadDLLByMap(PMODULE_INFO pModuleInfo);
+	LPVOID SimulateLoadDLLByRead(PMODULE_INFO pModuleInfo);
 
 	/**
 	* 释放模拟载入的DLL
