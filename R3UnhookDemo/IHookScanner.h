@@ -5,6 +5,7 @@
 #define MAX_PROCESS_NAME_LEN			0x50
 #define MAX_MODULE_PATH_LEN		0x400
 #define MAX_FUNCTION_LEN		0x50
+#define MAX_RECOVER_LEN			0x100
 
 enum  class HOOK_TYPE
 {
@@ -15,6 +16,7 @@ enum  class HOOK_TYPE
 
 typedef struct _HOOK_RESULT
 {
+	UINT32 uRecoverLen;
 	//每个扫描结果保存一个Id
 	DWORD dwHookId;
 
@@ -25,6 +27,7 @@ typedef struct _HOOK_RESULT
 	LPVOID lpHookedAddr;
 
 	//应该恢复的地址，外部不需要知道
+	//弃用
 	LPVOID lpRecoverAddr;
 
 	//预留，暂不使用
@@ -33,6 +36,7 @@ typedef struct _HOOK_RESULT
 	//Hook的三种类型之一
 	HOOK_TYPE type;
 
+	char szRecoverData[MAX_RECOVER_LEN];
 	//todo：处理同名进程去除钩子的问题
 	//被Hook的进程
 	wchar_t szProcess[MAX_PROCESS_NAME_LEN];

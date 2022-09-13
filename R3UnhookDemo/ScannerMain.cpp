@@ -3,7 +3,9 @@
 #include <sstream>
 using namespace std;
 
-
+//x64É¨Ãè¡¢Õªx86¹³×Ó
+//x86É¨Ãè¡¢Õªx64¹³×Ó
+//x86É¨Ãè¡¢Õªx86¹³×Ó
 
 void PrintUsage()
 {
@@ -65,10 +67,10 @@ void wmain(int argc, wchar_t* argv[])
 		switch (i.type)
 		{
 		case HOOK_TYPE::EATHook:
-			wmemcpy_s(szType, 0x10, L"IAT", wcslen(L"IAT") + 1);
+			wmemcpy_s(szType, 0x10, L"EAT", wcslen(L"EAT") + 1);
 			break;
 		case HOOK_TYPE::IATHook:
-			wmemcpy_s(szType, 0x10, L"EAT", wcslen(L"EAT") + 1);
+			wmemcpy_s(szType, 0x10, L"IAT", wcslen(L"IAT") + 1);
 			break;
 		case HOOK_TYPE::InlineHook:
 			wmemcpy_s(szType, 0x10, L"inline", wcslen(L"inline") + 1);

@@ -340,6 +340,7 @@ private:
 	static BOOL WINAPI CbCollectx64ModuleInfo(PPROCESS_INFO pProcessInfo, PMODULE_INFO pModuleInfo);
 	static BOOL WINAPI CbCollectx86ModuleInfo(PPROCESS_INFO pProcessInfo, PMODULE_INFO pModuleInfo);
 	static BOOL WINAPI CbCollectWow64Sys32ModuleInfo(PPROCESS_INFO pProcessInfo, PMODULE_INFO pModuleInfo);
+	static BOOL WINAPI CbCollectWow64Sys32ModuleInfoNoRemoteRead(PPROCESS_INFO pProcessInfo, PMODULE_INFO pModuleInfo);
 	static BOOL WINAPI CbRemoveSys32ModuleInfo(PPROCESS_INFO pProcessInfo, PMODULE_INFO pModuleInfo);
 	static BOOL WINAPI CbCollectx64ModuleInfoNoRemoteRead(PPROCESS_INFO pProcessInfo, PMODULE_INFO pModuleInfo);
 
@@ -357,7 +358,7 @@ private:
 	DWORD GetModuleSizeOfCode(const wchar_t* p);
 
 	BOOL CheckIfResultExist(HOOK_TYPE type, const wchar_t* pFunc, LPVOID pHookedAddr, const wchar_t* wcsRecoverDLL, LPVOID lpRecoverAddr);
-	VOID SaveHookResult(HOOK_TYPE type, const wchar_t* pModulePath, const wchar_t* pFunc, LPVOID pHookedAddr, const wchar_t* wcsRecoverDLL, LPVOID lpRecoverAddr);
+	VOID SaveHookResult(HOOK_TYPE type, const wchar_t* pModulePath, const wchar_t* pFunc, LPVOID pHookedAddr, const wchar_t* wcsRecoverDLL, LPVOID lpRecoverAddr, UINT32 uRecoverLen);
 
 	BOOL UnHookInner(PPROCESS_INFO pProcessInfo, PHOOK_RESULT pHookResult);
 	BOOL UnHookInlineHook(PPROCESS_INFO pProcessInfo, PHOOK_RESULT pHookResult);
